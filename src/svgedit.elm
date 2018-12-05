@@ -19,29 +19,21 @@ main =
 
 -- MODEL
 
-type alias Rect =
-  { x : Float
-  , y : Float
-  , width : Float
-  , height : Float
-  }
-
-type alias Circle =
-  { x : Float
-  , y : Float
-  }
+type Object =
+    Circle { x : Float, y : Float }
+  | Rect { x : Float, y : Float, width : Float, height : Float }
 
 type alias Model =
   { content : String
-  , clickLocation : Maybe (Int, Int)
-  , objects : List Circle
+  , prevClick : Maybe (Int, Int)
+  , objects : List Object
   }
 
 
 init : Model
 init =
   { content = ""
-  , clickLocation = Nothing
+  , prevClick = Nothing
   , objects = [] }
 
 
@@ -56,9 +48,18 @@ type Msg
 update : Msg -> Model -> Model
 update msg model =
   case msg of
-    Click {x, y} -> {model | objects = Circle (toFloat x) (toFloat y) :: model.objects}
+    --Click {x, y} -> {model | objects = Circle (toFloat x) (toFloat y) :: model.objects}
+    Click {x, y} ->
+      case model.prevClick of
+        Nothing -> { model | prevClick = Just (x, y) }
+        Just (xp, yp) ->
+          { model | prevClick = Nothing,
+            objects = Rect { x = toFloat xp, y = toFloat yp, width = toFloat (x - xp), height = toFloat (y - yp) } :: model.objects}
 
-
+drawObject o =
+  case o of
+    Circle c -> drawCircle c
+    Rect r -> drawRect r
 
 drawRect {x, y, width, height} =
   Svg.rect
@@ -68,6 +69,8 @@ drawRect {x, y, width, height} =
     , SA.height (String.fromFloat height)
     , SA.rx "15"
     , SA.ry "15"
+    , SA.fillOpacity "0"
+    , SA.stroke "black"
     ]
     []
 
@@ -109,6 +112,6 @@ view model =
        , SA.viewBox "0 0 120 120"
        , Svg.Events.on "click" clickDecoder
        ]
-       (List.map drawCircle model.objects)
+       (List.map drawObject model.objects)
     , div [] [ text model.content ]
     ]
