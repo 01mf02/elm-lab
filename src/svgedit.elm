@@ -142,9 +142,9 @@ view : Model -> Html Msg
 view model =
   div []
     [ Svg.svg
-       [ SA.width "120"
-       , SA.height "120"
-       , SA.viewBox "0 0 120 120"
+       [ SA.width "800"
+       , SA.height "600"
+       , SA.viewBox "0 0 800 600"
        , Svg.Events.on "click" clickDecoder
        ]
        (List.map drawObject model.objects)
