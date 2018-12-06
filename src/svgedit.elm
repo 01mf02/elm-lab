@@ -1,4 +1,9 @@
+-- TODO:
+-- This suffers from the issue described in
+-- <https://github.com/elm/svg/issues/23>.
+
 import Browser
+import Browser.Events exposing (onKeyPress)
 import Html exposing (Html, Attribute, div, input, text)
 import Html.Attributes exposing (..)
 import Html.Events exposing (onInput)
@@ -13,7 +18,12 @@ import Json.Decode as Json exposing (map2, int, at)
 
 
 main =
-  Browser.sandbox { init = init, update = update, view = view }
+  Browser.element
+    { init = init
+    , update = update
+    , view = view
+    , subscriptions = subscriptions
+    }
 
 
 
@@ -25,36 +35,52 @@ type Object =
 
 type alias Model =
   { content : String
+  , mode : Mode
   , prevClick : Maybe (Int, Int)
   , objects : List Object
   }
 
-
-init : Model
-init =
-  { content = ""
+initialModel =
+  { content = "c"
+  , mode = CircleMode
   , prevClick = Nothing
   , objects = [] }
+
+init : () -> (Model, Cmd Msg)
+init _ =
+  (initialModel, Cmd.none)
 
 
 
 -- UPDATE
 
+type Mode
+  = CircleMode
+  | RectMode
 
 type Msg
   = Click Position
+  | ModeChange Mode
+  | NoOp
 
 
-update : Msg -> Model -> Model
+update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
-  case msg of
-    --Click {x, y} -> {model | objects = Circle (toFloat x) (toFloat y) :: model.objects}
-    Click {x, y} ->
-      case model.prevClick of
-        Nothing -> { model | prevClick = Just (x, y) }
-        Just (xp, yp) ->
-          { model | prevClick = Nothing,
-            objects = Rect { x = toFloat xp, y = toFloat yp, width = toFloat (x - xp), height = toFloat (y - yp) } :: model.objects}
+  let
+    newModel = case msg of
+      --Click {x, y} -> {model | objects = Circle (toFloat x) (toFloat y) :: model.objects}
+      Click {x, y} ->
+        case model.mode of
+          CircleMode -> {model | objects = Circle { x = toFloat x, y = toFloat y } :: model.objects}
+          RectMode ->
+            case model.prevClick of
+              Nothing -> { model | prevClick = Just (x, y) }
+              Just (xp, yp) ->
+                { model | prevClick = Nothing,
+                  objects = Rect { x = toFloat xp, y = toFloat yp, width = toFloat (x - xp), height = toFloat (y - yp) } :: model.objects}
+      ModeChange m -> { model | mode = m, content = "m" ++ model.content }
+      NoOp -> { model | content = "n" ++ model.content }
+  in (newModel, Cmd.none)
 
 drawObject o =
   case o of
@@ -103,6 +129,15 @@ clickDecoder =
       )
     )
 
+rawKeyDecoder =
+  Json.field "key" Json.string
+
+keyHandler s =
+  case s of
+    "c" -> ModeChange CircleMode
+    "r" -> ModeChange RectMode
+    _ -> NoOp
+
 view : Model -> Html Msg
 view model =
   div []
@@ -115,3 +150,6 @@ view model =
        (List.map drawObject model.objects)
     , div [] [ text model.content ]
     ]
+
+subscriptions model =
+  Browser.Events.onKeyDown (Json.map keyHandler rawKeyDecoder)
