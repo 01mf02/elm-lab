@@ -1,6 +1,8 @@
 -- TODO:
 -- This suffers from the issue described in
 -- <https://github.com/elm/svg/issues/23>.
+-- Refs:
+-- * <https://javascript.info/mouse-drag-and-drop>
 
 import Browser
 import Browser.Events exposing (onKeyPress)
