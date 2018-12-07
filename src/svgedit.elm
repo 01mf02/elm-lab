@@ -4,7 +4,7 @@
 
 import Browser
 import Browser.Events exposing (onKeyPress)
-import Html exposing (Html, Attribute, div, input, text)
+import Html exposing (Html, Attribute, div, input, text, node)
 import Html.Attributes exposing (..)
 import Html.Events exposing (onInput)
 import Svg
@@ -138,10 +138,14 @@ keyHandler s =
     "r" -> ModeChange RectMode
     _ -> NoOp
 
+css path =
+  node "link" [ rel "stylesheet", href path ] []
+
 view : Model -> Html Msg
 view model =
   div []
-    [ Svg.svg
+    [ css "../style.css"
+    , Svg.svg
        [ SA.width "800"
        , SA.height "600"
        , SA.viewBox "0 0 800 600"

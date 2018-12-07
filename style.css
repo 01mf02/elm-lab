@@ -1,0 +1,22 @@
+/* for real seamless animation, use something like
+ * http://bl.ocks.org/veltman/fa74a3aff8497e970454bb064cf8dfd1
+ */
+
+
+rect {
+  stroke: #5184AF;
+  stroke-width: 10;
+}
+
+rect:hover {
+  stroke: red;
+  stroke-dasharray: 10;
+  animation: dash 60s linear infinite;
+}
+
+
+@keyframes dash {
+  to {
+    stroke-dashoffset: 1000;
+  }
+}
