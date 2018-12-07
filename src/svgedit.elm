@@ -38,13 +38,16 @@ type alias Model =
   , mode : Mode
   , prevClick : Maybe (Int, Int)
   , objects : List Object
+  , moving : Maybe Object
   }
 
 initialModel =
   { content = "c"
   , mode = CircleMode
   , prevClick = Nothing
-  , objects = [] }
+  , objects = []
+  , moving = Nothing
+  }
 
 init : () -> (Model, Cmd Msg)
 init _ =
@@ -61,8 +64,16 @@ type Mode
 type Msg
   = Click Position
   | ModeChange Mode
+  | MouseOver
+  | MouseOut
+  | ObjClicked Object
+  | Move (Int, Int)
   | NoOp
 
+moveObject (x, y) o =
+  case o of
+    Rect r -> Rect {r | x = toFloat x, y = toFloat y}
+    Circle c -> Circle c
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
@@ -79,6 +90,17 @@ update msg model =
                 { model | prevClick = Nothing,
                   objects = Rect { x = toFloat xp, y = toFloat yp, width = toFloat (x - xp), height = toFloat (y - yp) } :: model.objects}
       ModeChange m -> { model | mode = m, content = "m" ++ model.content }
+      MouseOver -> { model | content = "over\n" ++ model.content }
+      MouseOut -> { model | content = "out" ++ model.content }
+      ObjClicked o ->
+        { model | moving =
+          case model.moving of
+            Nothing -> Just o
+            Just _ -> Nothing }
+      Move xy ->
+        case model.moving of
+          Nothing -> model
+          Just o -> {model | content = "move" ++ model.content, moving = Just (moveObject xy o)}
       NoOp -> { model | content = "n" ++ model.content }
   in (newModel, Cmd.none)
 
@@ -87,16 +109,19 @@ drawObject o =
     Circle c -> drawCircle c
     Rect r -> drawRect r
 
-drawRect {x, y, width, height} =
+drawRect r =
   Svg.rect
-    [ SA.x (String.fromFloat x)
-    , SA.y (String.fromFloat y)
-    , SA.width (String.fromFloat width)
-    , SA.height (String.fromFloat height)
+    [ SA.x (String.fromFloat r.x)
+    , SA.y (String.fromFloat r.y)
+    , SA.width (String.fromFloat r.width)
+    , SA.height (String.fromFloat r.height)
     , SA.rx "15"
     , SA.ry "15"
     , SA.fillOpacity "0"
     , SA.stroke "black"
+    , Svg.Events.onClick (ObjClicked (Rect r))
+    , Svg.Events.onMouseOver MouseOver
+    , Svg.Events.onMouseOut MouseOut
     ]
     []
 
@@ -129,6 +154,11 @@ clickDecoder =
       )
     )
 
+clientXYDecoder =
+  Json.map2 Tuple.pair
+    (at [ "clientX" ] int)
+    (at [ "clientY" ] int)
+
 rawKeyDecoder =
   Json.field "key" Json.string
 
@@ -141,6 +171,11 @@ keyHandler s =
 css path =
   node "link" [ rel "stylesheet", href path ] []
 
+listFromMaybe m =
+  case m of
+    Just x -> [x]
+    Nothing -> []
+
 view : Model -> Html Msg
 view model =
   div []
@@ -151,9 +186,14 @@ view model =
        , SA.viewBox "0 0 800 600"
        , Svg.Events.on "click" clickDecoder
        ]
-       (List.map drawObject model.objects)
+       (List.map drawObject (listFromMaybe model.moving ++ model.objects))
     , div [] [ text model.content ]
     ]
 
 subscriptions model =
-  Browser.Events.onKeyDown (Json.map keyHandler rawKeyDecoder)
+  Sub.batch <| List.concat <|
+  [ [ Browser.Events.onKeyDown (Json.map keyHandler rawKeyDecoder) ]
+  , case model.moving of
+      Just _ -> [ Browser.Events.onMouseMove (Json.map Move clientXYDecoder) ]
+      Nothing -> []
+  ]
