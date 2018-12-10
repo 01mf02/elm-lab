@@ -14,9 +14,6 @@ var observer = new MutationObserver(function (mutations) {
     if (mutation.type === 'childList') {
       Array
         .from(mutation.addedNodes)
-        .filter(function (node) {
-          return node.tagName === 'svg'; 
-        })
         .forEach(function (node) {
 	  if (node.tagName === 'svg') {
             var pt = node.createSVGPoint();
@@ -53,7 +50,6 @@ var observer = new MutationObserver(function (mutations) {
             });
             event.currentTarget.dispatchEvent(svgClickEvent);
           });
-
         });
     }
   });
