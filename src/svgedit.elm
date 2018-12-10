@@ -13,6 +13,7 @@ import Svg
 import Svg.Attributes as SA
 import Svg.Events
 import Json.Decode as Json exposing (map2, int, at)
+import Json.Decode as Decode exposing (map2, int, at)
 
 
 
@@ -31,6 +32,11 @@ main =
 
 -- MODEL
 
+type alias SVGPoint =
+  { x : Float
+  , y : Float
+  }
+
 type Object =
     Circle { x : Float, y : Float }
   | Rect { x : Float, y : Float, width : Float, height : Float }
@@ -40,7 +46,7 @@ type alias Model =
   , mode : Mode
   , prevClick : Maybe (Int, Int)
   , objects : List Object
-  , moving : Maybe Object
+  , moving : Maybe ({-SVGPoint,-} Object)
   }
 
 initialModel =
@@ -186,7 +192,11 @@ view model =
        [ SA.width "800"
        , SA.height "600"
        , SA.viewBox "0 0 800 600"
-       , Svg.Events.on "click" clickDecoder
+       --, Svg.Events.on "click" clickDecoder
+       , Svg.Events.on "svgclick"
+            <| Json.map Click <| Decode.map2 Position
+                (Decode.at ["detail", "x"] Decode.float |> Decode.map round)
+                (Decode.at ["detail", "y"] Decode.float |> Decode.map round)
        ]
        (List.map drawObject (listFromMaybe model.moving ++ model.objects))
     , div [] [ text model.content ]
