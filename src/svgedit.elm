@@ -267,8 +267,7 @@ svgPointDecoder model =
 view : Model -> Html Msg
 view model =
   div []
-    [ css "../style.css"
-    , Svg.svg
+    [ Svg.svg
        [ SA.width "800"
        , SA.height "600"
        , SA.viewBox "0 0 800 600"
