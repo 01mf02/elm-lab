@@ -41,8 +41,6 @@ port requestScreenCtm : JE.Value -> Cmd msg
 port receiveScreenCtm : (JE.Value -> msg) -> Sub msg
 
 
-
-
 -- MODEL
 
 type alias ScreenCtm =
@@ -85,6 +83,7 @@ type alias Model =
   , prevClick : Maybe SVGPoint
   , objects : List Object
   , moving : Maybe (Object, MoveInfo)
+  , dashOffset : Float
   }
 
 initialModel =
@@ -94,6 +93,7 @@ initialModel =
   , prevClick = Nothing
   , objects = []
   , moving = Nothing
+  , dashOffset = 0
   }
 
 init : () -> (Model, Cmd Msg)
@@ -117,8 +117,9 @@ type Msg
   | MouseOver
   | MouseOut
   | ObjClicked Object SVGPoint
-  | OnResize Int Int
   | GotScreenCtm JE.Value
+  | OnResize Int Int
+  | OnAnimationFrameDelta Float
   | NoOp
 
 moveObject (o, {clickPos, pointerPos}) =
@@ -197,6 +198,9 @@ update msg model =
           -- so request again
           ( model, requestScreenCtm (JE.string svgElementId) )
 
+    OnAnimationFrameDelta d ->
+      ( { model | dashOffset = model.dashOffset + d/100 }, Cmd.none )
+
     NoOp -> ({ model | content = "n" ++ model.content }, Cmd.none)
 
 drawObject model o =
@@ -214,6 +218,7 @@ drawRect model r =
     , SA.ry "15"
     , SA.fillOpacity "0"
     , SA.stroke "black"
+    , SA.strokeDashoffset (String.fromFloat model.dashOffset)
     , Svg.Events.on "click" <| Json.map (ObjClicked (Rect r)) <| svgPointDecoder model
     , Svg.Events.onMouseOver MouseOver
     , Svg.Events.onMouseOut MouseOut
@@ -284,6 +289,7 @@ subscriptions model =
     [ receiveScreenCtm GotScreenCtm
     , Browser.Events.onResize OnResize
     , Browser.Events.onKeyDown (Json.map keyHandler rawKeyDecoder)
+    , Browser.Events.onAnimationFrameDelta OnAnimationFrameDelta
     ]
 
 screenCtmDecoder : JD.Decoder ScreenCtm
