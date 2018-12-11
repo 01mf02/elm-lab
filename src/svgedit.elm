@@ -1,8 +1,4 @@
--- TODO:
--- This suffers from the issue described in
--- <https://github.com/elm/svg/issues/23>.
--- Refs:
--- * <https://javascript.info/mouse-drag-and-drop>
+port module Main exposing (main)
 
 import Browser
 import Browser.Events exposing (onKeyPress)
@@ -14,11 +10,15 @@ import Svg.Attributes as SA
 import Svg.Events
 import Json.Decode as Json exposing (map2, int, at)
 import Json.Decode as Decode exposing (map2, int, at)
+import Json.Encode as JE
+import Json.Decode as JD
+
 
 
 
 -- MAIN
 
+svgElementId = "svg"
 
 main =
   Browser.element
@@ -30,11 +30,38 @@ main =
 
 
 
+-- PORTS
+
+-- Thanks to Markus Laire for his advice on transforming
+-- screen coordinates to SVG coordinates!
+-- https://discourse.elm-lang.org/t/dispatching-custom-events-only-if-needed/2740
+
+port requestScreenCtm : JE.Value -> Cmd msg
+
+port receiveScreenCtm : (JE.Value -> msg) -> Sub msg
+
+
+
+
 -- MODEL
+
+type alias ScreenCtm =
+  { a : Float
+  , b : Float
+  , c : Float
+  , d : Float
+  , e : Float
+  , f : Float
+  }
 
 type alias SVGPoint =
   { x : Float
   , y : Float
+  }
+
+type alias ClientXY =
+  { x : Int
+  , y : Int
   }
 
 type alias MoveInfo =
@@ -53,6 +80,7 @@ type Object =
 
 type alias Model =
   { content : String
+  , screenCtm : Maybe ScreenCtm
   , mode : Mode
   , prevClick : Maybe SVGPoint
   , objects : List Object
@@ -61,6 +89,7 @@ type alias Model =
 
 initialModel =
   { content = "c"
+  , screenCtm = Nothing
   , mode = CircleMode
   , prevClick = Nothing
   , objects = []
@@ -69,7 +98,9 @@ initialModel =
 
 init : () -> (Model, Cmd Msg)
 init _ =
-  (initialModel, Cmd.none)
+  ( initialModel
+  , requestScreenCtm (JE.string svgElementId)
+  )
 
 
 
@@ -81,11 +112,13 @@ type Mode
 
 type Msg
   = Click SVGPoint
+  | Move SVGPoint
   | ModeChange Mode
   | MouseOver
   | MouseOut
   | ObjClicked Object SVGPoint
-  | Move SVGPoint
+  | OnResize Int Int
+  | GotScreenCtm JE.Value
   | NoOp
 
 moveObject (o, {clickPos, pointerPos}) =
@@ -114,10 +147,10 @@ createRect c1 c2 =
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
-  let
-    newModel = case msg of
-      Click c ->
-        case model.mode of
+  case msg of
+    Click c ->
+      let
+        newModel = case model.mode of
           CircleMode -> {model | objects = Circle c :: model.objects}
           RectMode ->
             case model.prevClick of
@@ -125,41 +158,53 @@ update msg model =
               Just pc ->
                 { model | prevClick = Nothing,
                   objects = createRect c pc :: model.objects}
-      ModeChange m -> { model | mode = m, content = "m" ++ model.content }
-      MouseOver -> { model | content = "over\n" ++ model.content }
-      MouseOut -> { model | content = "out" ++ model.content }
-      ObjClicked o p ->
-        { model | content = "oc" ++ model.content, moving =
-          case model.moving of
-            Nothing -> Just (o, initMove p)
-            Just _ -> Nothing
-        , objects = case model.moving of
-            Nothing -> List.filter ((/=) o) model.objects
-            Just om -> moveObject om :: model.objects
-        }
-      Move xy ->
+      in (newModel, Cmd.none)
+    ModeChange m -> ({ model | mode = m, content = "m" ++ model.content }, Cmd.none)
+    MouseOver -> ({ model | content = "over\n" ++ model.content }, Cmd.none)
+    MouseOut -> ({ model | content = "out" ++ model.content }, Cmd.none)
+    ObjClicked o p ->
+      ({ model | content = "oc" ++ model.content, moving =
         case model.moving of
+          Nothing -> Just (o, initMove p)
+          Just _ -> Nothing
+      , objects = case model.moving of
+          Nothing -> List.filter ((/=) o) model.objects
+          Just om -> moveObject om :: model.objects
+      }, Cmd.none)
+    Move xy ->
+      let
+        newModel = case model.moving of
           Nothing -> model
           Just (o, m) ->
             { model
             | content = "move" ++ model.content
             , moving = Just (o, { m | pointerPos = xy })
             }
-      NoOp -> { model | content = "n" ++ model.content }
-  in (newModel, Cmd.none)
+      in (newModel, Cmd.none)
 
-drawObject o =
+    OnResize _ _ ->
+      ( model, requestScreenCtm (JE.string svgElementId) )
+
+    GotScreenCtm value ->
+      case JD.decodeValue screenCtmDecoder value of
+        Ok screenCtm ->
+          ( { model | screenCtm = Just screenCtm }
+          , Cmd.none
+          )
+
+        Err _ ->
+          -- probably failed because svg element wasn't created yet,
+          -- so request again
+          ( model, requestScreenCtm (JE.string svgElementId) )
+
+    NoOp -> ({ model | content = "n" ++ model.content }, Cmd.none)
+
+drawObject model o =
   case o of
     Circle c -> drawCircle c
-    Rect r -> drawRect r
+    Rect r -> drawRect model r
 
-detailXYDecoder =
-  Decode.map2 SVGPoint
-    (Decode.at ["detail", "x"] Decode.float)
-    (Decode.at ["detail", "y"] Decode.float)
-
-
-drawRect r =
+drawRect model r =
   Svg.rect
     [ SA.x (String.fromFloat r.x)
     , SA.y (String.fromFloat r.y)
@@ -169,7 +214,7 @@ drawRect r =
     , SA.ry "15"
     , SA.fillOpacity "0"
     , SA.stroke "black"
-    , Svg.Events.on "svgclick" <| Json.map (ObjClicked (Rect r)) <| detailXYDecoder
+    , Svg.Events.on "click" <| Json.map (ObjClicked (Rect r)) <| svgPointDecoder model
     , Svg.Events.onMouseOver MouseOver
     , Svg.Events.onMouseOut MouseOut
     ]
@@ -211,25 +256,54 @@ listFromMaybe m =
     Just x -> [x]
     Nothing -> []
 
+clientToSVGDecoder ctm (x, y) =
+  case ctm of
+    Nothing -> Json.fail "No CTM"
+    Just m -> Json.succeed (matrixTransform m (SVGPoint (toFloat x) (toFloat y)))
+
+svgPointDecoder model =
+  clientXYDecoder |> Json.andThen (clientToSVGDecoder model.screenCtm)
+
 view : Model -> Html Msg
 view model =
   div []
     [ css "../style.css"
     , Svg.svg
-       [ SA.width "100%"
-       , SA.height "100%"
+       [ SA.width "800"
+       , SA.height "600"
        , SA.viewBox "0 0 800 600"
-       , Svg.Events.on "svgclick" <| Json.map Click <| detailXYDecoder
-       , Svg.Events.on "svgmousemove" <| Json.map Move <| detailXYDecoder
+       , Svg.Events.on "click" <| Json.map Click <| svgPointDecoder model
+       , Svg.Events.on "mousemove" <| Json.map Move <| svgPointDecoder model
+       , SA.id svgElementId
        ]
-       (List.map drawObject (listFromMaybe (Maybe.map moveObject model.moving) ++ model.objects))
+       (List.map (drawObject model) (listFromMaybe (Maybe.map moveObject model.moving) ++ model.objects))
     , div [] [ text model.content ]
     ]
 
 subscriptions model =
-  Sub.batch <| List.concat <|
-  [ [ Browser.Events.onKeyDown (Json.map keyHandler rawKeyDecoder) ]
-  , case model.moving of
-      Just _ -> [] --[ Browser.Events.onMouseMove (Json.map Move clientXYDecoder) ]
-      Nothing -> []
-  ]
+  Sub.batch
+    [ receiveScreenCtm GotScreenCtm
+    , Browser.Events.onResize OnResize
+    , Browser.Events.onKeyDown (Json.map keyHandler rawKeyDecoder)
+    ]
+
+screenCtmDecoder : JD.Decoder ScreenCtm
+screenCtmDecoder =
+  JD.map6 (\a b c d e f -> { a = a, b = b, c = c, d = d, e = e, f = f })
+    (JD.field "a" JD.float)
+    (JD.field "b" JD.float)
+    (JD.field "c" JD.float)
+    (JD.field "d" JD.float)
+    (JD.field "e" JD.float)
+    (JD.field "f" JD.float)
+
+-- MATH
+
+
+{-| See <https://developer.mozilla.org/en-US/docs/Web/SVG/Attribute/transform>
+-}
+matrixTransform : ScreenCtm -> SVGPoint -> SVGPoint
+matrixTransform c p =
+  { x = c.a * p.x + c.c * p.y + c.e
+  , y = c.b * p.x + c.d * p.y + c.f
+  }
