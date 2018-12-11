@@ -1,3 +1,9 @@
+-- TODO:
+-- Positioning a Tooltip on a SVG:
+-- <https://codepen.io/billdwhite/pen/rgEbc>
+-- Relative positioning:
+-- <https://www.w3schools.com/css/css_positioning.asp>
+
 port module Main exposing (main)
 
 import Browser
