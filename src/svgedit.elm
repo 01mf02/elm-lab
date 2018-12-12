@@ -89,6 +89,7 @@ type alias Model =
   , prevClick : Maybe SVGPoint
   , objects : List Object
   , moving : Maybe (Object, MoveInfo)
+  , handleMoving : Maybe (Object, MoveInfo)
   , dashOffset : Float
   }
 
@@ -99,6 +100,7 @@ initialModel =
   , prevClick = Nothing
   , objects = []
   , moving = Nothing
+  , handleMoving = Nothing
   , dashOffset = 0
   }
 
@@ -123,6 +125,7 @@ type Msg
   | MouseOver
   | MouseOut
   | ObjClicked Object SVGPoint
+  | HandleClicked Object SVGPoint
   | GotScreenCtm JE.Value
   | OnResize Int Int
   | OnAnimationFrameDelta Float
@@ -134,6 +137,17 @@ moveObject (o, {clickPos, pointerPos}) =
       { r
       | x = r.x + pointerPos.x - clickPos.x
       , y = r.y + pointerPos.y - clickPos.y
+      }
+    Circle c -> Circle c
+
+moveHandleObject (o, {clickPos, pointerPos}) =
+  case o of
+    Rect r -> Rect
+      { r
+      | x = r.x + pointerPos.x - clickPos.x
+      , y = r.y + pointerPos.y - clickPos.y
+      , width = r.width - (pointerPos.x - clickPos.x)
+      , height = r.height - (pointerPos.y - clickPos.y)
       }
     Circle c -> Circle c
 
@@ -178,15 +192,26 @@ update msg model =
           Nothing -> List.filter ((/=) o) model.objects
           Just om -> moveObject om :: model.objects
       }, Cmd.none)
+    HandleClicked o p ->
+      ({ model | content = "handle" ++ model.content, handleMoving =
+        case model.handleMoving of
+          Nothing -> Just (o, initMove p)
+          Just _ -> Nothing
+      , objects = case model.handleMoving of
+          Nothing -> List.filter ((/=) o) model.objects
+          Just om -> moveHandleObject om :: model.objects
+      }, Cmd.none)
     Move xy ->
       let
-        newModel = case model.moving of
-          Nothing -> model
-          Just (o, m) ->
-            { model
-            | content = "move" ++ model.content
-            , moving = Just (o, { m | pointerPos = xy })
-            }
+        newModel =
+          { model |
+            moving = case model.moving of
+              Nothing -> Nothing
+              Just (o, m) -> Just (o, { m | pointerPos = xy })
+          , handleMoving = case model.handleMoving of
+              Nothing -> Nothing
+              Just (o, m) -> Just (o, { m | pointerPos = xy })
+          }
       in (newModel, Cmd.none)
 
     OnResize _ _ ->
@@ -212,7 +237,7 @@ update msg model =
 drawObject model o =
   case o of
     Circle c -> drawCircle c
-    Rect r -> drawRect model r
+    Rect r -> drawRectSelected model r
 
 drawRect model r =
   Svg.rect
@@ -230,6 +255,18 @@ drawRect model r =
     , Svg.Events.onMouseOut MouseOut
     ]
     []
+
+drawRectSelected model r =
+  Svg.g [ ]
+    [ drawRect model r
+    , Svg.circle
+      [ SA.cx (String.fromFloat r.x)
+      , SA.cy (String.fromFloat r.y)
+      , SA.r "10"
+      , Svg.Events.on "click" <| Json.map (HandleClicked (Rect r)) <| svgPointDecoder model
+      ]
+      []
+    ]
 
 drawCircle {x, y} =
   Svg.circle
@@ -286,7 +323,10 @@ view model =
        , Svg.Events.on "mousemove" <| Json.map Move <| svgPointDecoder model
        , SA.id svgElementId
        ]
-       (List.map (drawObject model) (listFromMaybe (Maybe.map moveObject model.moving) ++ model.objects))
+       (List.map (drawObject model)
+         (listFromMaybe (Maybe.map moveObject model.moving) ++
+          listFromMaybe (Maybe.map moveHandleObject model.handleMoving) ++
+         model.objects))
     , div [] [ text model.content ]
     ]
 
