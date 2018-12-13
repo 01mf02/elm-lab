@@ -2,6 +2,28 @@
  * http://bl.ocks.org/veltman/fa74a3aff8497e970454bb064cf8dfd1
  */
 
+/* good introduction to Flexbox/CSS grid:
+ * <https://hackernoon.com/the-ultimate-css-battle-grid-vs-flexbox-d40da0449faf>
+ */
+
+.container {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    grid-template-rows: 350px 50px;
+}
+
+aside {
+    grid-column: span 2;
+}
+
+main {
+    grid-column: span 10;
+}
+
+footer {
+    grid-column: span 12;
+}
+
 
 rect {
   stroke: #5184AF;

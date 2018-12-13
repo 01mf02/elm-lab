@@ -4,11 +4,14 @@
 -- Relative positioning:
 -- <https://www.w3schools.com/css/css_positioning.asp>
 
+-- Amazing inspiration:
+-- <https://sketch.io/sketchpad/>
+
 port module Main exposing (main)
 
 import Browser
 import Browser.Events exposing (onKeyPress)
-import Html exposing (Html, Attribute, div, input, text, node)
+import Html exposing (Html, Attribute, aside, main_, div, footer, input, text, node)
 import Html.Attributes exposing (..)
 import Html.Events exposing (onInput)
 import Svg
@@ -314,10 +317,13 @@ svgPointDecoder model =
 
 view : Model -> Html Msg
 view model =
-  div []
-    [ Svg.svg
-       [ SA.width "800"
-       , SA.height "600"
+  div [ SA.class "container" ]
+    [ aside []
+      [ text "Hi" ]
+    , main_ []
+      [ Svg.svg
+       [ SA.width "100%"
+       , SA.height "100%"
        , SA.viewBox "0 0 800 600"
        , Svg.Events.on "click" <| Json.map Click <| svgPointDecoder model
        , Svg.Events.on "mousemove" <| Json.map Move <| svgPointDecoder model
@@ -327,7 +333,9 @@ view model =
          (listFromMaybe (Maybe.map moveObject model.moving) ++
           listFromMaybe (Maybe.map moveHandleObject model.handleMoving) ++
          model.objects))
-    , div [] [ text model.content ]
+      ]
+    , footer []
+      [ text model.content ]
     ]
 
 subscriptions model =
