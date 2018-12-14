@@ -10,6 +10,10 @@
  * <https://codepen.io/AngelaVelasquez/pen/BWXbxP>
  */
 
+/* very nice introduction to CSS:
+ * <https://developer.mozilla.org/en-US/docs/Learn/CSS/Introduction_to_CSS>
+ */
+
 .container {
   display: grid;
   grid-template-columns: 48px repeat(11, 1fr);
