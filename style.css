@@ -44,6 +44,18 @@ input[type="radio"] {
   display: none;
 }
 
+input + svg {
+  transition-duration: 0.4s;
+}
+
+input:hover + svg {
+  background-color: #4CAF50; /* Green */
+}
+
+input:checked + svg {
+  background-color: #4CAF50; /* Green */
+}
+
 
 #svg rect {
   stroke: #5184AF;

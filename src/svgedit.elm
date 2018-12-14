@@ -318,7 +318,6 @@ svgPointDecoder model =
 rectButton =
   Svg.svg
     [ SA.viewBox "0 0 10 10"
-    , Svg.Events.on "click" (Json.succeed (ModeChange RectMode))
     ]
     [ Svg.rect
       [ SA.x "2.0"
@@ -333,6 +332,18 @@ rectButton =
       []
     ]
 
+circleButton =
+  Svg.svg
+    [ SA.viewBox "0 0 10 10"
+    ]
+    [ Svg.circle
+        [ SA.cx "5"
+        , SA.cy "5"
+        , SA.r "3"
+        ]
+        []
+    ]
+
 view : Model -> Html Msg
 view model =
   div [ SA.class "container" ]
@@ -343,6 +354,8 @@ view model =
           [ type_ "radio"
           , name "active-tool"
           , value "rect"
+          , onClick (ModeChange RectMode)
+          , checked (model.mode == RectMode)
           ]
           []
         , rectButton
@@ -353,9 +366,11 @@ view model =
           [ type_ "radio"
           , name "active-tool"
           , value "circle"
+          , onClick (ModeChange CircleMode)
+          , checked (model.mode == CircleMode)
           ]
           []
-        , button [onClick (ModeChange CircleMode)] [text "C"]
+        , circleButton
         ]
       ]
     , main_ []
