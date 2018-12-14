@@ -11,9 +11,9 @@ port module Main exposing (main)
 
 import Browser
 import Browser.Events exposing (onKeyPress)
-import Html exposing (Html, Attribute, aside, main_, div, footer, input, text, node)
+import Html exposing (Html, Attribute, aside, main_, button, div, footer, input, text, node, label)
 import Html.Attributes exposing (..)
-import Html.Events exposing (onInput)
+import Html.Events exposing (onInput, onClick)
 import Svg
 import Svg.Attributes as SA
 import Svg.Events
@@ -315,11 +315,49 @@ clientToSVGDecoder ctm (x, y) =
 svgPointDecoder model =
   clientXYDecoder |> Json.andThen (clientToSVGDecoder model.screenCtm)
 
+rectButton =
+  Svg.svg
+    [ SA.viewBox "0 0 10 10"
+    , Svg.Events.on "click" (Json.succeed (ModeChange RectMode))
+    ]
+    [ Svg.rect
+      [ SA.x "2.0"
+      , SA.y "2.0"
+      , SA.width "6.0"
+      , SA.height "6.0"
+      --, SA.rx "15"
+      --, SA.ry "15"
+      , SA.fillOpacity "0"
+      , SA.stroke "black"
+      ]
+      []
+    ]
+
 view : Model -> Html Msg
 view model =
   div [ SA.class "container" ]
     [ aside []
-      [ text "Hi" ]
+      [ label
+        []
+        [ input
+          [ type_ "radio"
+          , name "active-tool"
+          , value "rect"
+          ]
+          []
+        , rectButton
+        ]
+      , label
+        []
+        [ input
+          [ type_ "radio"
+          , name "active-tool"
+          , value "circle"
+          ]
+          []
+        , button [onClick (ModeChange CircleMode)] [text "C"]
+        ]
+      ]
     , main_ []
       [ Svg.svg
        [ SA.width "100%"

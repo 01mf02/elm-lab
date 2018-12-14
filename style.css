@@ -6,31 +6,46 @@
  * <https://hackernoon.com/the-ultimate-css-battle-grid-vs-flexbox-d40da0449faf>
  */
 
+/* for a nice styling of radio buttons:
+ * <https://codepen.io/AngelaVelasquez/pen/BWXbxP>
+ */
+
 .container {
-    display: grid;
-    grid-template-columns: repeat(12, 1fr);
-    grid-template-rows: 350px 50px;
+  display: grid;
+  grid-template-columns: 48px repeat(11, 1fr);
+  grid-template-rows: 350px 50px;
 }
 
 aside {
-    grid-column: span 2;
+  grid-column: span 1;
+  display: flex;
+  flex-direction: column;
 }
 
 main {
-    grid-column: span 10;
+  grid-column: span 11;
 }
 
 footer {
-    grid-column: span 12;
+  grid-column: span 12;
+}
+
+aside svg {
+  width: 48px;
+  height: auto;
+}
+
+input[type="radio"] {
+  display: none;
 }
 
 
-rect {
+#svg rect {
   stroke: #5184AF;
   stroke-width: 10;
 }
 
-rect:hover {
+#svg rect:hover {
   stroke: red;
   stroke-dasharray: 10;
   /*animation: dash 60s linear infinite;*/
