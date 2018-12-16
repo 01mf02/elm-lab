@@ -81,9 +81,12 @@ initMove pos =
   , pointerPos = pos
   }
 
+type alias RectInfo
+  = { x : Float, y : Float, width : Float, height : Float, objects : List Object }
+
 type Object =
     Circle { x : Float, y : Float }
-  | Rect { x : Float, y : Float, width : Float, height : Float }
+  | Rect RectInfo
 
 type alias Model =
   { content : String
@@ -161,13 +164,48 @@ createRect c1 c2 =
     (x1, x2) = minMax c1.x c2.x
     (y1, y2) = minMax c1.y c2.y
   in
-    Rect
-      { x = x1
-      , y = y1
-      , width = x2 - x1
-      , height = y2 - y1
-      }
+    { x = x1
+    , y = y1
+    , width = x2 - x1
+    , height = y2 - y1
+    , objects = []
+    }
 
+listPartitionFirst p =
+  let
+    aux acc rem =
+      case rem of
+        [] -> (acc, Nothing, rem)
+        x :: xs ->
+          if p x
+          then (acc, Just x, rem)
+          else aux (x :: acc) xs
+  in aux []
+
+boundingBox o =
+  case o of
+    Rect r -> {x = r.x, y = r.y, width = r.width, height = r.height }
+    Circle c -> {x = c.x, y = c.y, width = 0, height = 0 }
+
+insideBB bbOut bbIn =
+  bbOut.x < bbIn.x &&
+  bbOut.y < bbIn.y &&
+  bbOut.x + bbOut.width  > bbIn.x + bbIn.width &&
+  bbOut.y + bbOut.height > bbIn.y + bbIn.height
+
+
+inside : Object -> Object -> Bool
+inside outer inner = insideBB (boundingBox outer) (boundingBox inner)
+
+addRect : RectInfo -> List Object -> List Object
+addRect rect objs =
+  let (p1, mo, p2) = listPartitionFirst (\ o -> inside o (Rect rect)) objs in
+  case mo of
+    Just (Rect o) ->
+      Rect {o | objects = addRect rect o.objects} :: p1 ++ p2
+    _ ->
+      let (objsInside, objsOutside) = List.partition (inside (Rect rect)) objs
+      in Rect {rect | objects = rect.objects ++ objsInside} :: objsOutside
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
@@ -181,7 +219,7 @@ update msg model =
               Nothing -> { model | prevClick = Just c }
               Just pc ->
                 { model | prevClick = Nothing,
-                  objects = createRect c pc :: model.objects}
+                  objects = addRect (createRect c pc) model.objects}
       in (newModel, Cmd.none)
     ModeChange m -> ({ model | mode = m, content = "m" ++ model.content }, Cmd.none)
     MouseOver -> ({ model | content = "over\n" ++ model.content }, Cmd.none)
@@ -243,21 +281,23 @@ drawObject model o =
     Rect r -> drawRectSelected model r
 
 drawRect model r =
-  Svg.rect
-    [ SA.x (String.fromFloat r.x)
-    , SA.y (String.fromFloat r.y)
-    , SA.width (String.fromFloat r.width)
-    , SA.height (String.fromFloat r.height)
-    , SA.rx "15"
-    , SA.ry "15"
-    , SA.fillOpacity "0"
-    , SA.stroke "black"
-    , SA.strokeDashoffset (String.fromFloat model.dashOffset)
-    , Svg.Events.on "click" <| Json.map (ObjClicked (Rect r)) <| svgPointDecoder model
-    , Svg.Events.onMouseOver MouseOver
-    , Svg.Events.onMouseOut MouseOut
-    ]
-    []
+  Svg.g []
+    (Svg.rect
+      [ SA.x (String.fromFloat r.x)
+      , SA.y (String.fromFloat r.y)
+      , SA.width (String.fromFloat r.width)
+      , SA.height (String.fromFloat r.height)
+      , SA.rx "15"
+      , SA.ry "15"
+      , SA.fillOpacity "0"
+      , SA.stroke "black"
+      , SA.strokeDashoffset (String.fromFloat model.dashOffset)
+      , Svg.Events.on "click" <| Json.map (ObjClicked (Rect r)) <| svgPointDecoder model
+      , Svg.Events.onMouseOver MouseOver
+      , Svg.Events.onMouseOut MouseOut
+      ]
+      []
+    :: List.map (drawObject model) r.objects)
 
 drawRectSelected model r =
   Svg.g [ ]
