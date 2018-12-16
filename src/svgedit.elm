@@ -89,7 +89,7 @@ type Object =
   | Rect RectInfo
 
 type alias Model =
-  { content : String
+  { content : List String
   , screenCtm : Maybe ScreenCtm
   , mode : Mode
   , prevClick : Maybe SVGPoint
@@ -100,7 +100,7 @@ type alias Model =
   }
 
 initialModel =
-  { content = "c"
+  { content = ["c"]
   , screenCtm = Nothing
   , mode = CircleMode
   , prevClick = Nothing
@@ -177,10 +177,10 @@ listPartitionFirst p =
   let
     aux acc rem =
       case rem of
-        [] -> (acc, Nothing, rem)
+        [] -> (acc, Nothing, [])
         x :: xs ->
           if p x
-          then (acc, Just x, rem)
+          then (acc, Just x, xs)
           else aux (x :: acc) xs
   in aux []
 
@@ -199,6 +199,12 @@ insideBB bbOut bbIn =
 inside : Object -> Object -> Bool
 inside outer inner = insideBB (boundingBox outer) (boundingBox inner)
 
+addObject : Object -> List Object -> List Object
+addObject obj objs =
+  case obj of
+    Rect r -> addRect r objs
+    Circle c -> Circle c :: objs
+
 addRect : RectInfo -> List Object -> List Object
 addRect rect objs =
   let (p1, mo, p2) = listPartitionFirst (\ o -> inside o (Rect rect)) objs in
@@ -209,17 +215,20 @@ addRect rect objs =
       let (objsInside, objsOutside) = List.partition (inside (Rect rect)) objs
       in Rect {rect | objects = rect.objects ++ objsInside} :: objsOutside
 
-removeObject : Object -> List Object -> List Object
-removeObject obj objs =
+mapObject f obj objs =
   List.filterMap
     (\ o ->
-      if o == obj then Nothing
+      if o == obj then f o
       else
         case o of
           Rect r ->
-            Just (Rect {r | objects = removeObject obj r.objects})
+            Just (Rect {r | objects = mapObject f obj r.objects})
           Circle c -> Just (Circle c)
     ) objs
+
+removeObject : Object -> List Object -> List Object
+removeObject obj objs = mapObject (always Nothing) obj objs
+
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
@@ -235,26 +244,26 @@ update msg model =
                 { model | prevClick = Nothing,
                   objects = addRect (createRect c pc) model.objects}
       in (newModel, Cmd.none)
-    ModeChange m -> ({ model | mode = m, content = "m" ++ model.content }, Cmd.none)
-    MouseOver -> ({ model | content = "over\n" ++ model.content }, Cmd.none)
-    MouseOut -> ({ model | content = "out" ++ model.content }, Cmd.none)
+    ModeChange m -> ({ model | mode = m, content = "m" :: model.content }, Cmd.none)
+    MouseOver -> ({ model | content = "over" :: model.content }, Cmd.none)
+    MouseOut -> ({ model | content = "out" :: model.content }, Cmd.none)
     ObjClicked o p ->
-      ({ model | content = "oc" ++ model.content, moving =
+      ({ model | content = "oc" :: model.content, moving =
         case model.moving of
           Nothing -> Just (o, initMove p)
           Just _ -> Nothing
       , objects = case model.moving of
           Nothing -> removeObject o model.objects
-          Just om -> moveObject om :: model.objects
+          Just om -> addObject (moveObject om) model.objects
       }, Cmd.none)
     HandleClicked o p ->
-      ({ model | content = "handle" ++ model.content, handleMoving =
+      ({ model | content = "handle" :: model.content, handleMoving =
         case model.handleMoving of
           Nothing -> Just (o, initMove p)
           Just _ -> Nothing
       , objects = case model.handleMoving of
           Nothing -> removeObject o model.objects
-          Just om -> moveHandleObject om :: model.objects
+          Just om -> addObject (moveHandleObject om) model.objects
       }, Cmd.none)
     Move xy ->
       let
@@ -287,7 +296,7 @@ update msg model =
     OnAnimationFrameDelta d ->
       ( { model | dashOffset = model.dashOffset + d/100 }, Cmd.none )
 
-    NoOp -> ({ model | content = "n" ++ model.content }, Cmd.none)
+    NoOp -> ({ model | content = "n" :: model.content }, Cmd.none)
 
 drawObject model o =
   case o of
@@ -441,8 +450,7 @@ view model =
           listFromMaybe (Maybe.map moveHandleObject model.handleMoving) ++
          model.objects))
       ]
-    , footer []
-      [ text model.content ]
+    , footer [] (List.map text model.content)
     ]
 
 subscriptions model =
