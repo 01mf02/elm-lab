@@ -137,12 +137,14 @@ type Msg
   | OnAnimationFrameDelta Float
   | NoOp
 
-moveObject (o, {clickPos, pointerPos}) =
+moveObject (o, pos) =
+  let {clickPos, pointerPos} = pos in
   case o of
     Rect r -> Rect
       { r
       | x = r.x + pointerPos.x - clickPos.x
       , y = r.y + pointerPos.y - clickPos.y
+      , objects = List.map (\ c -> moveObject (c, pos)) r.objects
       }
     Circle c -> Circle c
 
@@ -207,6 +209,18 @@ addRect rect objs =
       let (objsInside, objsOutside) = List.partition (inside (Rect rect)) objs
       in Rect {rect | objects = rect.objects ++ objsInside} :: objsOutside
 
+removeObject : Object -> List Object -> List Object
+removeObject obj objs =
+  List.filterMap
+    (\ o ->
+      if o == obj then Nothing
+      else
+        case o of
+          Rect r ->
+            Just (Rect {r | objects = removeObject obj r.objects})
+          Circle c -> Just (Circle c)
+    ) objs
+
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
   case msg of
@@ -230,7 +244,7 @@ update msg model =
           Nothing -> Just (o, initMove p)
           Just _ -> Nothing
       , objects = case model.moving of
-          Nothing -> List.filter ((/=) o) model.objects
+          Nothing -> removeObject o model.objects
           Just om -> moveObject om :: model.objects
       }, Cmd.none)
     HandleClicked o p ->
@@ -239,7 +253,7 @@ update msg model =
           Nothing -> Just (o, initMove p)
           Just _ -> Nothing
       , objects = case model.handleMoving of
-          Nothing -> List.filter ((/=) o) model.objects
+          Nothing -> removeObject o model.objects
           Just om -> moveHandleObject om :: model.objects
       }, Cmd.none)
     Move xy ->
