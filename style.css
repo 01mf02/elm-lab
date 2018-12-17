@@ -62,6 +62,11 @@ input:checked + svg {
   stroke-width: 10;
 }
 
+#svg .strikethrough {
+  stroke: red;
+  stroke-width: 3;
+}
+
 #svg rect:hover {
   stroke: red;
   stroke-dasharray: 10;

@@ -322,9 +322,28 @@ drawRect model r =
       []
     :: List.map (drawObject model) r.objects)
 
+drawStrikethrough r =
+  Svg.g [ SA.class "strikethrough" ]
+    [ Svg.line
+        [ SA.x1 (String.fromFloat r.x)
+        , SA.y1 (String.fromFloat r.y)
+        , SA.x2 (String.fromFloat (r.x + r.width))
+        , SA.y2 (String.fromFloat (r.y + r.height))
+        ]
+        []
+    , Svg.line
+        [ SA.x1 (String.fromFloat (r.x + r.width))
+        , SA.y1 (String.fromFloat r.y)
+        , SA.x2 (String.fromFloat r.x)
+        , SA.y2 (String.fromFloat (r.y + r.height))
+        ]
+        []
+    ]
+
 drawRectSelected model r =
   Svg.g [ ]
-    [ drawRect model r
+    [ drawStrikethrough r
+    , drawRect model r
     , Svg.circle
       [ SA.cx (String.fromFloat r.x)
       , SA.cy (String.fromFloat r.y)
@@ -445,10 +464,11 @@ view model =
        , Svg.Events.on "mousemove" <| Json.map Move <| svgPointDecoder model
        , SA.id svgElementId
        ]
-       (List.map (drawObject model)
-         (listFromMaybe (Maybe.map moveObject model.moving) ++
-          listFromMaybe (Maybe.map moveHandleObject model.handleMoving) ++
-         model.objects))
+       <| List.map (drawObject model) <| List.concat
+         [ model.objects
+         , listFromMaybe (Maybe.map moveHandleObject model.handleMoving)
+         , listFromMaybe (Maybe.map moveObject model.moving)
+         ]
       ]
     , footer [] (List.map text model.content)
     ]
