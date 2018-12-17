@@ -310,10 +310,6 @@ drawRect model r =
       , SA.y (String.fromFloat r.y)
       , SA.width (String.fromFloat r.width)
       , SA.height (String.fromFloat r.height)
-      , SA.rx "15"
-      , SA.ry "15"
-      , SA.fillOpacity "0"
-      , SA.stroke "black"
       , SA.strokeDashoffset (String.fromFloat model.dashOffset)
       , Svg.Events.on "click" <| Json.map (ObjClicked (Rect r)) <| svgPointDecoder model
       , Svg.Events.onMouseOver MouseOver
