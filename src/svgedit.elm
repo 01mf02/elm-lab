@@ -292,14 +292,24 @@ update msg model =
     MouseOver -> ({ model | content = "over" :: model.content }, Cmd.none)
     MouseOut -> ({ model | content = "out" :: model.content }, Cmd.none)
     Clicked moveMode o p ->
-      ({ model | content = "c" :: model.content, moving =
-        case model.moving of
-          Nothing -> Just (initMove moveMode o p)
-          Just _ -> Nothing
-      , objects = case model.moving of
-          Nothing -> removeObject o model.objects
-          Just om -> addObject (moveFunction om) model.objects
-      }, Cmd.none)
+      (case model.moving of
+        Nothing ->
+          { model |
+            moving = Just (initMove moveMode o p)
+          , objects = removeObject o model.objects
+          }
+        Just om ->
+          let newObj = moveFunction om
+          in
+            if anyObject (invalidOverlap newObj) model.objects
+            then model
+            else
+              { model
+              | moving = Nothing
+              , objects = addObject newObj model.objects
+              }
+      , Cmd.none)
+
     Move xy ->
       let
         newModel =
