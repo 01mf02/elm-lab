@@ -112,6 +112,7 @@ type alias Model =
   , objects : List Object
   , moving : Maybe MoveInfo
   , msElapsed : Float
+  , hovered : Maybe Object
   }
 
 initialModel =
@@ -122,6 +123,7 @@ initialModel =
   , objects = []
   , moving = Nothing
   , msElapsed = 0
+  , hovered = Nothing
   }
 
 init : () -> (Model, Cmd Msg)
@@ -142,7 +144,7 @@ type Msg
   = Click SVGPoint
   | Move SVGPoint
   | ModeChange Mode
-  | MouseOver
+  | MouseOver Object
   | MouseOut
   | Clicked MoveMode Object SVGPoint
   | GotScreenCtm JE.Value
@@ -289,7 +291,7 @@ update msg model =
                   objects = addRect (createRect c pc) model.objects}
       in (newModel, Cmd.none)
     ModeChange m -> ({ model | mode = m, content = "m" :: model.content }, Cmd.none)
-    MouseOver -> ({ model | content = "over" :: model.content }, Cmd.none)
+    MouseOver o -> ({ model | content = "over" :: model.content, hovered = Just o }, Cmd.none)
     MouseOut -> ({ model | content = "out" :: model.content }, Cmd.none)
     Clicked moveMode o p ->
       (case model.moving of
@@ -342,9 +344,14 @@ update msg model =
     NoOp -> ({ model | content = "n" :: model.content }, Cmd.none)
 
 drawObject drawType model o =
-  case o of
+  let
+    dt =
+      case model.hovered of
+        Nothing -> drawType
+        Just ho -> if o == ho then Hovered else drawType
+  in case o of
     Circle c -> drawCircle c
-    Rect r -> drawRect drawType model r
+    Rect r -> drawRect dt model r
 
 drawSimpleRect : Model -> RectInfo -> Svg.Svg Msg
 drawSimpleRect model r =
@@ -355,7 +362,7 @@ drawSimpleRect model r =
       , SA.width (String.fromFloat r.width)
       , SA.height (String.fromFloat r.height)
       , Svg.Events.on "click" <| Json.map (Clicked ObjectMove (Rect r)) <| svgPointDecoder model
-      , Svg.Events.onMouseOver MouseOver
+      , Svg.Events.onMouseOver (MouseOver (Rect r))
       , Svg.Events.onMouseOut MouseOut
       ]
       []
