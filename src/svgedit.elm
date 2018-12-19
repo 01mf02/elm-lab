@@ -49,6 +49,9 @@ port requestScreenCtm : JE.Value -> Cmd msg
 
 port receiveScreenCtm : (JE.Value -> msg) -> Sub msg
 
+-- Thanks to harrysarson for the CSS custom variable workaround in
+-- <https://github.com/elm/html/issues/177>
+
 port setCssProp : JE.Value -> Cmd msg
 
 setCssPropE selector prop value =
