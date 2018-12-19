@@ -383,14 +383,14 @@ update msg model =
 
     NoOp -> ({ model | content = "n" :: model.content }, Cmd.none)
 
-drawObject : DrawType -> Model -> Object -> Svg.Svg Msg
-drawObject drawType model obj =
+drawObject : DrawType -> Model -> Shaped a -> Svg.Svg Msg
+drawObject drawType model {shape} =
   let
     dt =
       case model.hovered of
         Nothing -> drawType
-        Just hov -> if hov.shape == obj.shape then Hovered else drawType
-  in case obj.shape of
+        Just hov -> if hov.shape == shape then Hovered else drawType
+  in case shape of
     Circle c -> drawCircle c
     Rect r -> drawRect dt model r
 
@@ -466,14 +466,12 @@ drawCircle {x, y} =
     ]
     []
 
-type alias Position =
-  {x : Int, y : Int}
 
 -- VIEW
 
 
 clientXYDecoder =
-  Json.map2 Tuple.pair
+  Json.map2 ClientXY
     (at [ "clientX" ] int)
     (at [ "clientY" ] int)
 
@@ -486,21 +484,20 @@ keyHandler s =
     "r" -> ModeChange RectMode
     _ -> NoOp
 
-css path =
-  node "link" [ rel "stylesheet", href path ] []
-
 listFromMaybe m =
   case m of
     Just x -> [x]
     Nothing -> []
 
-clientToSVGDecoder ctm (x, y) =
+clientToSVGDecoder : Maybe ScreenCtm -> ClientXY -> JD.Decoder SVGPoint
+clientToSVGDecoder ctm {x, y} =
   case ctm of
     Nothing -> Json.fail "No CTM"
     Just m -> Json.succeed (matrixTransform m (SVGPoint (toFloat x) (toFloat y)))
 
-svgPointDecoder model =
-  clientXYDecoder |> Json.andThen (clientToSVGDecoder model.screenCtm)
+svgPointDecoder : {a | screenCtm : Maybe ScreenCtm} -> JD.Decoder SVGPoint
+svgPointDecoder {screenCtm} =
+  clientXYDecoder |> Json.andThen (clientToSVGDecoder screenCtm)
 
 rectButton =
   Svg.svg
