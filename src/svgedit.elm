@@ -49,6 +49,11 @@ port requestScreenCtm : JE.Value -> Cmd msg
 
 port receiveScreenCtm : (JE.Value -> msg) -> Sub msg
 
+port setCssProp : JE.Value -> Cmd msg
+
+setCssPropE selector prop value =
+  setCssProp (JE.list JE.string [selector, prop, value])
+
 
 -- MODEL
 
@@ -103,7 +108,7 @@ type alias Model =
   , prevClick : Maybe SVGPoint
   , objects : List Object
   , moving : Maybe MoveInfo
-  , dashOffset : Float
+  , msElapsed : Float
   }
 
 initialModel =
@@ -113,7 +118,7 @@ initialModel =
   , prevClick = Nothing
   , objects = []
   , moving = Nothing
-  , dashOffset = 0
+  , msElapsed = 0
   }
 
 init : () -> (Model, Cmd Msg)
@@ -214,10 +219,26 @@ noOverlap bb1 bb2 =
   || bb2.y + bb2.height < bb1.y
   )
 
-overlap bb1 bb2 = not (noOverlap bb1 bb2)
+overlap o1 o2 = not (noOverlap (boundingBox o1) (boundingBox o2))
 
 inside : Object -> Object -> Bool
 inside outer inner = insideBB (boundingBox outer) (boundingBox inner)
+
+anyObject : (Object -> Bool) -> List Object -> Bool
+anyObject p =
+  List.any
+    (\ o ->
+      p o ||
+      (case o of
+        Rect r -> anyObject p r.objects
+        Circle c -> False
+      )
+    )
+
+invalidOverlap o1 o2 =
+  not (inside o1 o2) &&
+  not (inside o2 o1) &&
+  overlap o1 o2
 
 addObject : Object -> List Object -> List Object
 addObject obj objs =
@@ -302,29 +323,30 @@ update msg model =
           ( model, requestScreenCtm (JE.string svgElementId) )
 
     OnAnimationFrameDelta d ->
-      ( { model | dashOffset = model.dashOffset + d/100 }, Cmd.none )
+      ( { model | msElapsed = model.msElapsed + d },
+        setCssPropE ":root" "--ms-elapsed" (String.fromFloat model.msElapsed) )
 
     NoOp -> ({ model | content = "n" :: model.content }, Cmd.none)
 
-drawObject model o =
+drawObject drawType model o =
   case o of
     Circle c -> drawCircle c
-    Rect r -> drawRectSelected model r
+    Rect r -> drawRect drawType model r
 
-drawRect model r =
+drawSimpleRect : Model -> RectInfo -> Svg.Svg Msg
+drawSimpleRect model r =
   Svg.g []
     (Svg.rect
       [ SA.x (String.fromFloat r.x)
       , SA.y (String.fromFloat r.y)
       , SA.width (String.fromFloat r.width)
       , SA.height (String.fromFloat r.height)
-      , SA.strokeDashoffset (String.fromFloat model.dashOffset)
       , Svg.Events.on "click" <| Json.map (Clicked ObjectMove (Rect r)) <| svgPointDecoder model
       , Svg.Events.onMouseOver MouseOver
       , Svg.Events.onMouseOut MouseOut
       ]
       []
-    :: List.map (drawObject model) r.objects)
+    :: List.map (drawObject Normal model) r.objects)
 
 drawStrikethrough r =
   Svg.g [ SA.class "strikethrough" ]
@@ -344,18 +366,35 @@ drawStrikethrough r =
         []
     ]
 
-drawRectSelected model r =
-  Svg.g [ ]
-    [ drawStrikethrough r
-    , drawRect model r
-    , Svg.circle
-      [ SA.cx (String.fromFloat r.x)
-      , SA.cy (String.fromFloat r.y)
-      , SA.r "10"
-      , Svg.Events.on "click" <| Json.map (Clicked HandleMove (Rect r)) <| svgPointDecoder model
-      ]
-      []
+type DrawType
+  = Normal
+  | Hovered
+  | Moving
+  | MovingOverlap
+
+drawRectHandle model r =
+  Svg.circle
+    [ SA.cx (String.fromFloat r.x)
+    , SA.cy (String.fromFloat r.y)
+    , SA.r "10"
+    , Svg.Events.on "click" <| Json.map (Clicked HandleMove (Rect r)) <| svgPointDecoder model
     ]
+    []
+
+consIf b x xs =
+  if b then x :: xs else xs
+
+drawRect drawType model r =
+  Svg.g [ ]
+    ([drawSimpleRect model r]
+     |> consIf (drawType == MovingOverlap) (drawStrikethrough r)
+     |> consIf (drawType == Hovered) (drawRectHandle model r)
+    )
+
+drawMoving model o =
+  if anyObject (invalidOverlap o) model.objects
+  then drawObject MovingOverlap model o
+  else drawObject Moving model o
 
 drawCircle {x, y} =
   Svg.circle
@@ -468,9 +507,9 @@ view model =
        , Svg.Events.on "mousemove" <| Json.map Move <| svgPointDecoder model
        , SA.id svgElementId
        ]
-       <| List.map (drawObject model) <| List.concat
-         [ model.objects
-         , listFromMaybe (Maybe.map moveFunction model.moving)
+       <| List.concat
+         [ List.map (drawObject Normal model) model.objects
+         , List.map (drawMoving model) <| listFromMaybe (Maybe.map moveFunction model.moving)
          ]
       ]
     , footer [] (List.map text model.content)

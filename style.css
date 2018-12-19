@@ -73,6 +73,7 @@ input:checked + svg {
 #svg rect:hover {
   stroke: red;
   stroke-dasharray: 10;
+  stroke-dashoffset: calc(var(--ms-elapsed)/100);
   /*animation: dash 60s linear infinite;*/
 }
 
