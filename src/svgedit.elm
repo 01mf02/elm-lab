@@ -71,13 +71,21 @@ type alias ClientXY =
   , y : Int
   }
 
+type MoveMode
+  = HandleMove
+  | ObjectMove
+
 type alias MoveInfo =
-  { clickPos : SVGPoint
+  { moveMode : MoveMode
+  , object : Object
+  , clickPos : SVGPoint
   , pointerPos : SVGPoint
   }
 
-initMove pos =
-  { clickPos = pos
+initMove mode o pos =
+  { moveMode = mode
+  , object = o
+  , clickPos = pos
   , pointerPos = pos
   }
 
@@ -94,8 +102,7 @@ type alias Model =
   , mode : Mode
   , prevClick : Maybe SVGPoint
   , objects : List Object
-  , moving : Maybe (Object, MoveInfo)
-  , handleMoving : Maybe (Object, MoveInfo)
+  , moving : Maybe MoveInfo
   , dashOffset : Float
   }
 
@@ -106,7 +113,6 @@ initialModel =
   , prevClick = Nothing
   , objects = []
   , moving = Nothing
-  , handleMoving = Nothing
   , dashOffset = 0
   }
 
@@ -130,26 +136,25 @@ type Msg
   | ModeChange Mode
   | MouseOver
   | MouseOut
-  | ObjClicked Object SVGPoint
-  | HandleClicked Object SVGPoint
+  | Clicked MoveMode Object SVGPoint
   | GotScreenCtm JE.Value
   | OnResize Int Int
   | OnAnimationFrameDelta Float
   | NoOp
 
-moveObject (o, pos) =
-  let {clickPos, pointerPos} = pos in
-  case o of
+moveObject mi  =
+  let {object, clickPos, pointerPos} = mi in
+  case object of
     Rect r -> Rect
       { r
       | x = r.x + pointerPos.x - clickPos.x
       , y = r.y + pointerPos.y - clickPos.y
-      , objects = List.map (\ c -> moveObject (c, pos)) r.objects
+      , objects = List.map (\ c -> moveObject {mi | object = c}) r.objects
       }
     Circle c -> Circle c
 
-moveHandleObject (o, {clickPos, pointerPos}) =
-  case o of
+moveHandleObject {object, clickPos, pointerPos} =
+  case object of
     Rect r -> Rect
       { r
       | x = r.x + pointerPos.x - clickPos.x
@@ -158,6 +163,11 @@ moveHandleObject (o, {clickPos, pointerPos}) =
       , height = r.height - (pointerPos.y - clickPos.y)
       }
     Circle c -> Circle c
+
+moveFunction mi =
+  case mi.moveMode of
+    HandleMove -> moveHandleObject mi
+    ObjectMove -> moveObject mi
 
 createRect c1 c2 =
   let
@@ -195,6 +205,16 @@ insideBB bbOut bbIn =
   bbOut.x + bbOut.width  > bbIn.x + bbIn.width &&
   bbOut.y + bbOut.height > bbIn.y + bbIn.height
 
+-- with a little help from:
+-- https://gamedev.stackexchange.com/questions/586/what-is-the-fastest-way-to-work-out-2d-bounding-box-intersection/913#913
+noOverlap bb1 bb2 =
+  (  bb1.x + bb1.width < bb2.x
+  || bb2.x + bb2.width < bb1.x
+  || bb1.y + bb1.height < bb2.y
+  || bb2.y + bb2.height < bb1.y
+  )
+
+overlap bb1 bb2 = not (noOverlap bb1 bb2)
 
 inside : Object -> Object -> Bool
 inside outer inner = insideBB (boundingBox outer) (boundingBox inner)
@@ -247,23 +267,14 @@ update msg model =
     ModeChange m -> ({ model | mode = m, content = "m" :: model.content }, Cmd.none)
     MouseOver -> ({ model | content = "over" :: model.content }, Cmd.none)
     MouseOut -> ({ model | content = "out" :: model.content }, Cmd.none)
-    ObjClicked o p ->
-      ({ model | content = "oc" :: model.content, moving =
+    Clicked moveMode o p ->
+      ({ model | content = "c" :: model.content, moving =
         case model.moving of
-          Nothing -> Just (o, initMove p)
+          Nothing -> Just (initMove moveMode o p)
           Just _ -> Nothing
       , objects = case model.moving of
           Nothing -> removeObject o model.objects
-          Just om -> addObject (moveObject om) model.objects
-      }, Cmd.none)
-    HandleClicked o p ->
-      ({ model | content = "handle" :: model.content, handleMoving =
-        case model.handleMoving of
-          Nothing -> Just (o, initMove p)
-          Just _ -> Nothing
-      , objects = case model.handleMoving of
-          Nothing -> removeObject o model.objects
-          Just om -> addObject (moveHandleObject om) model.objects
+          Just om -> addObject (moveFunction om) model.objects
       }, Cmd.none)
     Move xy ->
       let
@@ -271,10 +282,7 @@ update msg model =
           { model |
             moving = case model.moving of
               Nothing -> Nothing
-              Just (o, m) -> Just (o, { m | pointerPos = xy })
-          , handleMoving = case model.handleMoving of
-              Nothing -> Nothing
-              Just (o, m) -> Just (o, { m | pointerPos = xy })
+              Just mi -> Just { mi | pointerPos = xy }
           }
       in (newModel, Cmd.none)
 
@@ -311,7 +319,7 @@ drawRect model r =
       , SA.width (String.fromFloat r.width)
       , SA.height (String.fromFloat r.height)
       , SA.strokeDashoffset (String.fromFloat model.dashOffset)
-      , Svg.Events.on "click" <| Json.map (ObjClicked (Rect r)) <| svgPointDecoder model
+      , Svg.Events.on "click" <| Json.map (Clicked ObjectMove (Rect r)) <| svgPointDecoder model
       , Svg.Events.onMouseOver MouseOver
       , Svg.Events.onMouseOut MouseOut
       ]
@@ -344,7 +352,7 @@ drawRectSelected model r =
       [ SA.cx (String.fromFloat r.x)
       , SA.cy (String.fromFloat r.y)
       , SA.r "10"
-      , Svg.Events.on "click" <| Json.map (HandleClicked (Rect r)) <| svgPointDecoder model
+      , Svg.Events.on "click" <| Json.map (Clicked HandleMove (Rect r)) <| svgPointDecoder model
       ]
       []
     ]
@@ -462,8 +470,7 @@ view model =
        ]
        <| List.map (drawObject model) <| List.concat
          [ model.objects
-         , listFromMaybe (Maybe.map moveHandleObject model.handleMoving)
-         , listFromMaybe (Maybe.map moveObject model.moving)
+         , listFromMaybe (Maybe.map moveFunction model.moving)
          ]
       ]
     , footer [] (List.map text model.content)
