@@ -103,13 +103,12 @@ initMove mode o pos =
 type alias Rectangular a
   = { a | x : Float, y : Float, width : Float, height : Float }
 
-type alias HasChildren a
-  = { a | children : List Object }
+type alias HasChildren c a
+  = { a | children : List c }
 
 type Shape
-  = Circle { x : Float, y : Float }
-  | Rect (Rectangular (HasChildren {}))
-
+  = Circle SVGPoint
+  | Rect (Rectangular (HasChildren Object {}))
 
 type alias Identifiable a
   = { a | id : Int }
@@ -274,6 +273,19 @@ anyObject p =
       )
     )
 
+{-
+anyShaped : (Shaped a -> Bool) -> List (Shaped a) -> Bool
+anyShaped p =
+  List.any
+    (\ s ->
+      p s ||
+      (case s.shape of
+        Rect r -> anyShaped p r.children
+        Circle _ -> False
+      )
+    )
+-}
+
 invalidOverlap : Shaped a -> Shaped a -> Bool
 invalidOverlap o1 o2 =
   not (inside o1 o2) &&
@@ -286,7 +298,7 @@ addObject o objs =
     Rect r -> addRect o.id r objs
     Circle c -> o :: objs
 
-addRect : Id -> Rectangular (HasChildren {}) -> List Object -> List Object
+addRect : Id -> Rectangular (HasChildren Object {}) -> List Object -> List Object
 addRect id rect objs =
   let (p1, container, p2) = listPartitionFirst (\ o -> insideBB (boundingBox o.shape) rect) objs in
   case container of
@@ -394,7 +406,7 @@ drawObject drawType model {shape} =
     Circle c -> drawCircle c
     Rect r -> drawRect dt model r
 
-drawSimpleRect : Model -> Rectangular (HasChildren {}) -> Svg.Svg Msg
+drawSimpleRect : Model -> Rectangular (HasChildren Object {}) -> Svg.Svg Msg
 drawSimpleRect model r =
   Svg.g []
     (Svg.rect
