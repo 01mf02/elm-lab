@@ -87,11 +87,12 @@ type alias Id = Int
 
 type alias MoveInfo =
   { moveMode : MoveMode
-  , object : Obj
+  , object : Object
   , clickPos : SVGPoint
   , pointerPos : SVGPoint
   }
 
+initMove : MoveMode -> Object -> SVGPoint -> MoveInfo
 initMove mode o pos =
   { moveMode = mode
   , object = o
@@ -99,14 +100,31 @@ initMove mode o pos =
   , pointerPos = pos
   }
 
-type alias RectInfo
-  = { x : Float, y : Float, width : Float, height : Float, objects : List Obj }
+type alias Rectangular a
+  = { a | x : Float, y : Float, width : Float, height : Float }
 
-type Object =
-    Circle { x : Float, y : Float }
-  | Rect RectInfo
+type alias HasChildren a
+  = { a | children : List Object }
 
-type alias Obj = (Id, Object)
+type Shape
+  = Circle { x : Float, y : Float }
+  | Rect (Rectangular (HasChildren {}))
+
+
+type alias Identifiable a
+  = { a | id : Int }
+
+type alias Shaped a
+  = { a | shape : Shape }
+
+type alias Object
+  = Identifiable (Shaped {})
+
+mapShaped f r = {r | shape = f r}
+mapMaybeShaped f r =
+  case f r of
+    Nothing -> Nothing
+    Just s -> Just {r | shape = s}
 
 mapObj f (id, object) = (id, f object)
 
@@ -115,10 +133,10 @@ type alias Model =
   , screenCtm : Maybe ScreenCtm
   , mode : Mode
   , prevClick : Maybe SVGPoint
-  , objects : List Obj
+  , objects : List Object
   , moving : Maybe MoveInfo
   , msElapsed : Float
-  , hovered : Maybe Obj
+  , hovered : Maybe Object
   }
 
 initialModel =
@@ -150,32 +168,32 @@ type Msg
   = Click SVGPoint
   | Move SVGPoint
   | ModeChange Mode
-  | MouseOver Obj
+  | MouseOver Object
   | MouseOut
-  | Clicked MoveMode Obj SVGPoint
+  | Clicked MoveMode Object SVGPoint
   | GotScreenCtm JE.Value
   | OnResize Int Int
   | OnAnimationFrameDelta Float
   | NoOp
 
-moveObject : MoveInfo -> Obj
+moveObject : MoveInfo -> Object
 moveObject mi =
   let {object, clickPos, pointerPos} = mi in
-  mapObj (\ obj ->
-  case obj of
+  mapShaped (\ {shape} ->
+  case shape of
     Rect r -> Rect
       { r
       | x = r.x + pointerPos.x - clickPos.x
       , y = r.y + pointerPos.y - clickPos.y
-      , objects = List.map (\ c -> moveObject {mi | object = c}) r.objects
+      , children = List.map (\ c -> moveObject {mi | object = c}) r.children
       }
     Circle c -> Circle c
   ) object
 
-moveHandleObject : MoveInfo -> Obj
+moveHandleObject : MoveInfo -> Object
 moveHandleObject {object, clickPos, pointerPos} =
-  mapObj (\ obj ->
-  case obj of
+  mapShaped (\ {shape} ->
+  case shape of
     Rect r -> Rect
       { r
       | x = r.x + pointerPos.x - clickPos.x
@@ -186,7 +204,7 @@ moveHandleObject {object, clickPos, pointerPos} =
     Circle c -> Circle c
   ) object
 
-moveFunction : MoveInfo -> Obj
+moveFunction : MoveInfo -> Object
 moveFunction mi =
   case mi.moveMode of
     HandleMove -> moveHandleObject mi
@@ -203,7 +221,7 @@ createRect c1 c2 =
     , y = y1
     , width = x2 - x1
     , height = y2 - y1
-    , objects = []
+    , children = []
     }
 
 listPartitionFirst p =
@@ -217,11 +235,13 @@ listPartitionFirst p =
           else aux (x :: acc) xs
   in aux []
 
+boundingBox : Shape -> Rectangular {}
 boundingBox o =
   case o of
-    Rect r -> {x = r.x, y = r.y, width = r.width, height = r.height }
-    Circle c -> {x = c.x, y = c.y, width = 0, height = 0 }
+    Rect r -> { x = r.x, y = r.y, width = r.width, height = r.height }
+    Circle c -> { x = c.x, y = c.y, width = 0, height = 0 }
 
+insideBB : Rectangular a -> Rectangular b -> Bool
 insideBB bbOut bbIn =
   bbOut.x < bbIn.x &&
   bbOut.y < bbIn.y &&
@@ -230,6 +250,7 @@ insideBB bbOut bbIn =
 
 -- with a little help from:
 -- https://gamedev.stackexchange.com/questions/586/what-is-the-fastest-way-to-work-out-2d-bounding-box-intersection/913#913
+noOverlap : Rectangular a -> Rectangular b -> Bool
 noOverlap bb1 bb2 =
   (  bb1.x + bb1.width < bb2.x
   || bb2.x + bb2.width < bb1.x
@@ -237,59 +258,62 @@ noOverlap bb1 bb2 =
   || bb2.y + bb2.height < bb1.y
   )
 
-overlap o1 o2 = not (noOverlap (boundingBox o1) (boundingBox o2))
+overlap o1 o2 = not (noOverlap (boundingBox o1.shape) (boundingBox o2.shape))
 
-inside : Object -> Object -> Bool
-inside outer inner = insideBB (boundingBox outer) (boundingBox inner)
+inside : Shaped a -> Shaped a -> Bool
+inside outer inner = insideBB (boundingBox outer.shape) (boundingBox inner.shape)
 
-anyObject : (Object -> Bool) -> List Obj -> Bool
+anyObject : (Object -> Bool) -> List Object -> Bool
 anyObject p =
   List.any
-    (\ (_, o) ->
+    (\ o ->
       p o ||
-      (case o of
-        Rect r -> anyObject p r.objects
+      (case o.shape of
+        Rect r -> anyObject p r.children
         Circle c -> False
       )
     )
 
+invalidOverlap : Shaped a -> Shaped a -> Bool
 invalidOverlap o1 o2 =
   not (inside o1 o2) &&
   not (inside o2 o1) &&
   overlap o1 o2
 
-addObject : Obj -> List Obj -> List Obj
-addObject (id, obj) objs =
-  case obj of
-    Rect r -> addRect id r objs
-    Circle c -> (id, Circle c) :: objs
+addObject : Object -> List Object -> List Object
+addObject o objs =
+  case o.shape of
+    Rect r -> addRect o.id r objs
+    Circle c -> o :: objs
 
-addRect : Id -> RectInfo -> List Obj -> List Obj
+addRect : Id -> Rectangular (HasChildren {}) -> List Object -> List Object
 addRect id rect objs =
-  let (p1, mo, p2) = listPartitionFirst (\ (_, o) -> inside o (Rect rect)) objs in
-  case mo of
-    Just (idmo, Rect o) ->
-      (idmo, Rect {o | objects = addRect id rect o.objects}) :: p1 ++ p2
-    _ ->
-      let (objsInside, objsOutside) = List.partition (Tuple.second >> inside (Rect rect)) objs
-      in (id, Rect {rect | objects = rect.objects ++ objsInside}) :: objsOutside
+  let (p1, container, p2) = listPartitionFirst (\ o -> insideBB (boundingBox o.shape) rect) objs in
+  case container of
+    Just c ->
+      case c.shape of
+        Rect rc -> {c | shape = Rect {rc | children = addRect id rect rc.children}} :: p1 ++ p2
+        Circle _ -> Debug.todo "impossible"
+    Nothing ->
+      let (objsInside, objsOutside) = List.partition (.shape >> boundingBox >> insideBB rect) objs
+      in {id = id, shape = Rect {rect | children = rect.children ++ objsInside}} :: objsOutside
 
 -- TODO: adapt for ID comparison
 -- mapObjWithId
-mapObject f obj objs =
-  List.filterMap
-    (\ (id, o) ->
-      (if o == Tuple.second obj then f o
+mapObject : (Shape -> Maybe Shape) -> Shape -> List Object -> List Object
+mapObject f sh objs =
+  List.filterMap (mapMaybeShaped
+    (\ {shape} ->
+      if shape == sh then f shape
       else
-        case o of
+        case shape of
           Rect r ->
-            Just (Rect {r | objects = mapObject f obj r.objects})
-          Circle c -> Just (Circle c))
-      |> Maybe.map (Tuple.pair id)
-    ) objs
+            Just (Rect {r | children = mapObject f sh r.children})
+          Circle c -> Just (Circle c)
+    )) objs
 
-removeObject : Obj -> List Obj -> List Obj
-removeObject obj objs = mapObject (always Nothing) obj objs
+removeObject : Object -> List Object -> List Object
+removeObject obj objs = mapObject (always Nothing) obj.shape objs
 
 
 update : Msg -> Model -> (Model, Cmd Msg)
@@ -298,7 +322,7 @@ update msg model =
     Click c ->
       let
         newModel = case model.mode of
-          CircleMode -> {model | objects = (0, Circle c) :: model.objects}
+          CircleMode -> {model | objects = {id = 0, shape = Circle c} :: model.objects}
           RectMode ->
             case model.prevClick of
               Nothing -> { model | prevClick = Just c }
@@ -319,7 +343,7 @@ update msg model =
         Just om ->
           let newObj = moveFunction om
           in
-            if anyObject (invalidOverlap (Tuple.second newObj)) model.objects
+            if anyObject (invalidOverlap newObj) model.objects
             then model
             else
               { model
@@ -359,18 +383,18 @@ update msg model =
 
     NoOp -> ({ model | content = "n" :: model.content }, Cmd.none)
 
-drawObject : DrawType -> Model -> Obj -> Svg.Svg Msg
-drawObject drawType model (id, o) =
+drawObject : DrawType -> Model -> Object -> Svg.Svg Msg
+drawObject drawType model obj =
   let
     dt =
       case model.hovered of
         Nothing -> drawType
-        Just (hid, ho) -> if o == ho then Hovered else drawType
-  in case o of
+        Just hov -> if hov.shape == obj.shape then Hovered else drawType
+  in case obj.shape of
     Circle c -> drawCircle c
     Rect r -> drawRect dt model r
 
-drawSimpleRect : Model -> RectInfo -> Svg.Svg Msg
+drawSimpleRect : Model -> Rectangular (HasChildren {}) -> Svg.Svg Msg
 drawSimpleRect model r =
   Svg.g []
     (Svg.rect
@@ -378,12 +402,12 @@ drawSimpleRect model r =
       , SA.y (String.fromFloat r.y)
       , SA.width (String.fromFloat r.width)
       , SA.height (String.fromFloat r.height)
-      , Svg.Events.on "click" <| Json.map (Clicked ObjectMove (0, Rect r)) <| svgPointDecoder model
-      , Svg.Events.onMouseOver (MouseOver (0, Rect r))
+      , Svg.Events.on "click" <| Json.map (Clicked ObjectMove {id = 0, shape = Rect r}) <| svgPointDecoder model
+      , Svg.Events.onMouseOver (MouseOver {id = 0, shape = Rect r})
       , Svg.Events.onMouseOut MouseOut
       ]
       []
-    :: List.map (drawObject Normal model) r.objects)
+    :: List.map (drawObject Normal model) r.children)
 
 drawStrikethrough r =
   Svg.g [ SA.class "strikethrough" ]
@@ -414,7 +438,7 @@ drawRectHandle model r =
     [ SA.cx (String.fromFloat r.x)
     , SA.cy (String.fromFloat r.y)
     , SA.r "10"
-    , Svg.Events.on "click" <| Json.map (Clicked HandleMove (0, Rect r)) <| svgPointDecoder model
+    , Svg.Events.on "click" <| Json.map (Clicked HandleMove {id = 0, shape = Rect r}) <| svgPointDecoder model
     ]
     []
 
@@ -428,11 +452,11 @@ drawRect drawType model r =
      |> consIf (drawType == Hovered) (drawRectHandle model r)
     )
 
--- TODO: remove id
-drawMoving model (id, o) =
-  if anyObject (invalidOverlap o) model.objects
-  then drawObject MovingOverlap model (id, o)
-  else drawObject Moving model (id, o)
+drawMoving : Model -> Object -> Svg.Svg Msg
+drawMoving model obj =
+  if anyObject (invalidOverlap obj) model.objects
+  then drawObject MovingOverlap model obj
+  else drawObject Moving model obj
 
 drawCircle {x, y} =
   Svg.circle
