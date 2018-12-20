@@ -89,15 +89,15 @@ initId = Id 0
 
 type alias MoveInfo =
   { moveMode : MoveMode
-  , id : Id
+  , object : Object
   , clickPos : SVGPoint
   , pointerPos : SVGPoint
   }
 
-initMove : MoveMode -> Id -> SVGPoint -> MoveInfo
-initMove mode id pos =
+initMove : MoveMode -> Object -> SVGPoint -> MoveInfo
+initMove mode obj pos =
   { moveMode = mode
-  , id = id
+  , object = obj
   , clickPos = pos
   , pointerPos = pos
   }
@@ -177,13 +177,12 @@ type Msg
   | ModeChange Mode
   | MouseOver Id
   | MouseOut
-  | Clicked MoveMode Id SVGPoint
+  | Clicked MoveMode Object SVGPoint
   | GotScreenCtm JE.Value
   | OnResize Int Int
   | OnAnimationFrameDelta Float
   | NoOp
 
-{-
 moveObject : MoveInfo -> Object
 moveObject mi =
   let {object, clickPos, pointerPos} = mi in
@@ -217,7 +216,6 @@ moveFunction mi =
   case mi.moveMode of
     HandleMove -> moveHandleObject mi
     ObjectMove -> moveObject mi
--}
 
 createRect c1 c2 =
   let
@@ -315,20 +313,20 @@ addRect id rect objs =
 
 -- TODO: adapt for ID comparison
 -- mapObjWithId
-mapObject : (Shape -> Maybe Shape) -> Shape -> List Object -> List Object
-mapObject f sh objs =
+mapObject : (Shape -> Maybe Shape) -> Id -> List Object -> List Object
+mapObject f id objs =
   List.filterMap (mapMaybeShaped
-    (\ {shape} ->
-      if shape == sh then f shape
+    (\ obj ->
+      if obj.id == id then f obj.shape
       else
-        case shape of
+        case obj.shape of
           Rect r ->
-            Just (Rect {r | children = mapObject f sh r.children})
+            Just (Rect {r | children = mapObject f id r.children})
           Circle c -> Just (Circle c)
     )) objs
 
-removeObject : Object -> List Object -> List Object
-removeObject obj objs = mapObject (always Nothing) obj.shape objs
+removeObject : Id -> List Object -> List Object
+removeObject id objs = mapObject (always Nothing) id objs
 
 
 update : Msg -> Model -> (Model, Cmd Msg)
@@ -357,20 +355,18 @@ update msg model =
         Nothing ->
           { model |
             moving = Just (initMove moveMode o p)
-          --, objects = removeObject o model.objects
+          , objects = removeObject o.id model.objects
           , content = "start move" :: model.content
           }
         Just om ->
-                {-
           let newObj = moveFunction om
           in
             if anyObject (invalidOverlap newObj) model.objects
             then model
             else
-                -}
               { model
               | moving = Nothing
-              --, objects = addObject newObj model.objects
+              , objects = addObject newObj model.objects
               }
       , Cmd.none)
 
@@ -406,30 +402,37 @@ update msg model =
     NoOp -> ({ model | content = "n" :: model.content }, Cmd.none)
 
 drawObject : DrawType -> Model -> Object -> Svg.Svg Msg
-drawObject drawType model {id, shape} =
+drawObject drawType model ({id, shape} as object) =
   let
     dt =
       case model.hovered of
         Nothing -> drawType
-        Just hov -> if hov == id then Hovered else drawType
+        Just hov -> {-if hov == id then Hovered else -}drawType
 
     objEvents =
-      [ Svg.Events.on "click" <| Json.map (Clicked ObjectMove id) <| svgPointDecoder model
+      [ Svg.Events.on "click" <| Json.map (Clicked ObjectMove object) <| svgPointDecoder model
       , Svg.Events.onMouseOver (MouseOver id)
       ]
 
     handleEvents =
-      [ Svg.Events.on "click" <| Json.map (Clicked HandleMove id) <| svgPointDecoder model
+      [ Svg.Events.on "click" <| Json.map (Clicked HandleMove object) <| svgPointDecoder model
       ]
 
   in
     case shape of
       Circle c -> drawCircle c
       Rect r ->
+        let handle = (drawRectHandle handleEvents r)
+            strikethrough = (drawStrikethrough [ SA.class "strikethrough" ] r)
+        in
         Svg.g [ ]
-          (drawRectangular objEvents r :: List.map (drawObject Normal model) r.children
-           |> consIf (dt == MovingOverlap) (drawStrikethrough [ SA.class "strikethrough" ] r)
-           |> consIf (dt == Hovered) (drawRectHandle handleEvents r)
+          (drawRectangular objEvents r :: List.map (drawNormal model) r.children ++
+            (case dt of
+              Hovered -> [handle]
+              MovingOverlap -> [handle, strikethrough]
+              Moving -> [handle]
+              Normal -> []
+            )
           )
 
 drawRectangular : List (Attribute msg) -> Rectangular a -> Svg msg
@@ -482,11 +485,23 @@ drawRectHandle attrs r =
 consIf b x xs =
   if b then x :: xs else xs
 
-drawMoving : Model -> Object -> Svg.Svg Msg
-drawMoving model obj =
+normalDrawType model obj =
+  case model.hovered of
+    Nothing -> Normal
+    Just hov -> if hov == obj.id then Hovered else Normal
+
+drawNormal : Model -> Object -> Svg Msg
+drawNormal model obj =
+  drawObject (normalDrawType model obj) model obj
+
+movingDrawType model obj =
   if anyObject (invalidOverlap obj) model.objects
-  then drawObject MovingOverlap model obj
-  else drawObject Moving model obj
+  then MovingOverlap
+  else Moving
+
+drawMoving : Model -> Object -> Svg Msg
+drawMoving model obj =
+  drawObject (movingDrawType model obj) model obj
 
 drawCircle {x, y} =
   Svg.circle
@@ -597,8 +612,8 @@ view model =
        , SA.id svgElementId
        ]
        <| List.concat
-         [ List.map (drawObject Normal model) model.objects
-         --, List.map (drawMoving model) <| listFromMaybe (Maybe.map moveFunction model.moving)
+         [ List.map (drawNormal model) model.objects
+         , List.map (drawMoving model) <| listFromMaybe (Maybe.map moveFunction model.moving)
          ]
       ]
     , footer [] (List.map text model.content)
