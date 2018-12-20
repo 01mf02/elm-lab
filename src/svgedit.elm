@@ -136,6 +136,7 @@ type alias Model =
   , moving : Maybe MoveInfo
   , msElapsed : Float
   , hovered : Maybe Object
+  , freshId : Int
   }
 
 initialModel =
@@ -147,6 +148,7 @@ initialModel =
   , moving = Nothing
   , msElapsed = 0
   , hovered = Nothing
+  , freshId = 0
   }
 
 init : () -> (Model, Cmd Msg)
@@ -327,13 +329,17 @@ update msg model =
     Click c ->
       let
         newModel = case model.mode of
-          CircleMode -> {model | objects = {id = 0, shape = Circle c} :: model.objects}
+          CircleMode ->
+            { model
+            | objects = {id = model.freshId, shape = Circle c} :: model.objects
+            , freshId = model.freshId + 1}
           RectMode ->
             case model.prevClick of
               Nothing -> { model | prevClick = Just c }
               Just pc ->
                 { model | prevClick = Nothing,
-                  objects = addRect 0 (createRect c pc) model.objects}
+                  objects = addRect model.freshId (createRect c pc) model.objects
+                , freshId = model.freshId + 1}
       in (newModel, Cmd.none)
     ModeChange m -> ({ model | mode = m, content = "m" :: model.content }, Cmd.none)
     MouseOver o -> ({ model | content = "over" :: model.content, hovered = Just o }, Cmd.none)
