@@ -249,18 +249,28 @@ insideBB bbOut bbIn =
 
 -- with a little help from:
 -- https://gamedev.stackexchange.com/questions/586/what-is-the-fastest-way-to-work-out-2d-bounding-box-intersection/913#913
-noOverlap : Rectangular a -> Rectangular b -> Bool
-noOverlap bb1 bb2 =
+noOverlapBB : Rectangular a -> Rectangular b -> Bool
+noOverlapBB bb1 bb2 =
   (  bb1.x + bb1.width < bb2.x
   || bb2.x + bb2.width < bb1.x
   || bb1.y + bb1.height < bb2.y
   || bb2.y + bb2.height < bb1.y
   )
 
-overlap o1 o2 = not (noOverlap (boundingBox o1.shape) (boundingBox o2.shape))
+invalidOverlapBB : Rectangular a -> Rectangular b -> Bool
+invalidOverlapBB bb1 bb2 =
+  not (insideBB bb1 bb2) &&
+  not (insideBB bb2 bb1) &&
+  not (noOverlapBB bb1 bb2)
 
-inside : Shaped a -> Shaped a -> Bool
+
+inside : Shaped a -> Shaped b -> Bool
 inside outer inner = insideBB (boundingBox outer.shape) (boundingBox inner.shape)
+
+invalidOverlap : Shaped a -> Shaped b -> Bool
+invalidOverlap o1 o2 =
+  invalidOverlapBB (boundingBox o1.shape) (boundingBox o2.shape)
+
 
 anyObject : (Object -> Bool) -> List Object -> Bool
 anyObject p =
@@ -273,25 +283,6 @@ anyObject p =
       )
     )
 
-{-
-anyShaped : (Shaped a -> Bool) -> List (Shaped a) -> Bool
-anyShaped p =
-  List.any
-    (\ s ->
-      p s ||
-      (case s.shape of
-        Rect r -> anyShaped p r.children
-        Circle _ -> False
-      )
-    )
--}
-
-invalidOverlap : Shaped a -> Shaped a -> Bool
-invalidOverlap o1 o2 =
-  not (inside o1 o2) &&
-  not (inside o2 o1) &&
-  overlap o1 o2
-
 addObject : Object -> List Object -> List Object
 addObject o objs =
   case o.shape of
@@ -300,14 +291,16 @@ addObject o objs =
 
 addRect : Id -> Rectangular (HasChildren Object {}) -> List Object -> List Object
 addRect id rect objs =
-  let (p1, container, p2) = listPartitionFirst (\ o -> insideBB (boundingBox o.shape) rect) objs in
+  let
+    rectObj = {shape = Rect rect}
+    (p1, container, p2) = listPartitionFirst (\ o -> inside o rectObj) objs in
   case container of
     Just c ->
       case c.shape of
         Rect rc -> {c | shape = Rect {rc | children = addRect id rect rc.children}} :: p1 ++ p2
         Circle _ -> Debug.todo "impossible"
     Nothing ->
-      let (objsInside, objsOutside) = List.partition (.shape >> boundingBox >> insideBB rect) objs
+      let (objsInside, objsOutside) = List.partition (inside rectObj) objs
       in {id = id, shape = Rect {rect | children = rect.children ++ objsInside}} :: objsOutside
 
 -- TODO: adapt for ID comparison
