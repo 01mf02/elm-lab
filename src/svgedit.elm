@@ -14,7 +14,7 @@ import Browser.Events exposing (onKeyPress)
 import Html exposing (Html, Attribute, aside, main_, button, div, footer, input, text, node, label)
 import Html.Attributes exposing (..)
 import Html.Events exposing (onInput, onClick)
-import Svg
+import Svg exposing (Svg)
 import Svg.Attributes as SA
 import Svg.Events
 import Json.Decode as Json exposing (map2, int, at)
@@ -83,19 +83,21 @@ type MoveMode
   = HandleMove
   | ObjectMove
 
-type alias Id = Int
+type Id = Id Int
+
+initId = Id 0
 
 type alias MoveInfo =
   { moveMode : MoveMode
-  , object : Object
+  , id : Id
   , clickPos : SVGPoint
   , pointerPos : SVGPoint
   }
 
-initMove : MoveMode -> Object -> SVGPoint -> MoveInfo
-initMove mode o pos =
+initMove : MoveMode -> Id -> SVGPoint -> MoveInfo
+initMove mode id pos =
   { moveMode = mode
-  , object = o
+  , id = id
   , clickPos = pos
   , pointerPos = pos
   }
@@ -111,7 +113,7 @@ type Shape
   | Rect (Rectangular (HasChildren Object {}))
 
 type alias Identifiable a
-  = { a | id : Int }
+  = { a | id : Id }
 
 type alias Shaped a
   = { a | shape : Shape }
@@ -135,8 +137,8 @@ type alias Model =
   , objects : List Object
   , moving : Maybe MoveInfo
   , msElapsed : Float
-  , hovered : Maybe Object
-  , freshId : Int
+  , hovered : Maybe Id
+  , freshId : Id
   }
 
 initialModel =
@@ -148,8 +150,12 @@ initialModel =
   , moving = Nothing
   , msElapsed = 0
   , hovered = Nothing
-  , freshId = 0
+  , freshId = initId
   }
+
+refreshId r =
+  let (Id id) = r.freshId
+  in { r | freshId = Id (id + 1) }
 
 init : () -> (Model, Cmd Msg)
 init _ =
@@ -169,14 +175,15 @@ type Msg
   = Click SVGPoint
   | Move SVGPoint
   | ModeChange Mode
-  | MouseOver Object
+  | MouseOver Id
   | MouseOut
-  | Clicked MoveMode Object SVGPoint
+  | Clicked MoveMode Id SVGPoint
   | GotScreenCtm JE.Value
   | OnResize Int Int
   | OnAnimationFrameDelta Float
   | NoOp
 
+{-
 moveObject : MoveInfo -> Object
 moveObject mi =
   let {object, clickPos, pointerPos} = mi in
@@ -210,6 +217,7 @@ moveFunction mi =
   case mi.moveMode of
     HandleMove -> moveHandleObject mi
     ObjectMove -> moveObject mi
+-}
 
 createRect c1 c2 =
   let
@@ -332,14 +340,14 @@ update msg model =
           CircleMode ->
             { model
             | objects = {id = model.freshId, shape = Circle c} :: model.objects
-            , freshId = model.freshId + 1}
+            } |> refreshId
           RectMode ->
             case model.prevClick of
               Nothing -> { model | prevClick = Just c }
               Just pc ->
                 { model | prevClick = Nothing,
                   objects = addRect model.freshId (createRect c pc) model.objects
-                , freshId = model.freshId + 1}
+                } |> refreshId
       in (newModel, Cmd.none)
     ModeChange m -> ({ model | mode = m, content = "m" :: model.content }, Cmd.none)
     MouseOver o -> ({ model | content = "over" :: model.content, hovered = Just o }, Cmd.none)
@@ -349,17 +357,20 @@ update msg model =
         Nothing ->
           { model |
             moving = Just (initMove moveMode o p)
-          , objects = removeObject o model.objects
+          --, objects = removeObject o model.objects
+          , content = "start move" :: model.content
           }
         Just om ->
+                {-
           let newObj = moveFunction om
           in
             if anyObject (invalidOverlap newObj) model.objects
             then model
             else
+                -}
               { model
               | moving = Nothing
-              , objects = addObject newObj model.objects
+              --, objects = addObject newObj model.objects
               }
       , Cmd.none)
 
@@ -394,34 +405,48 @@ update msg model =
 
     NoOp -> ({ model | content = "n" :: model.content }, Cmd.none)
 
-drawObject : DrawType -> Model -> Shaped a -> Svg.Svg Msg
-drawObject drawType model {shape} =
+drawObject : DrawType -> Model -> Object -> Svg.Svg Msg
+drawObject drawType model {id, shape} =
   let
     dt =
       case model.hovered of
         Nothing -> drawType
-        Just hov -> if hov.shape == shape then Hovered else drawType
-  in case shape of
-    Circle c -> drawCircle c
-    Rect r -> drawRect dt model r
+        Just hov -> if hov == id then Hovered else drawType
 
-drawSimpleRect : Model -> Rectangular (HasChildren Object {}) -> Svg.Svg Msg
-drawSimpleRect model r =
-  Svg.g []
-    (Svg.rect
+    objEvents =
+      [ Svg.Events.on "click" <| Json.map (Clicked ObjectMove id) <| svgPointDecoder model
+      , Svg.Events.onMouseOver (MouseOver id)
+      ]
+
+    handleEvents =
+      [ Svg.Events.on "click" <| Json.map (Clicked HandleMove id) <| svgPointDecoder model
+      ]
+
+  in
+    case shape of
+      Circle c -> drawCircle c
+      Rect r ->
+        Svg.g [ ]
+          (drawRectangular objEvents r :: List.map (drawObject Normal model) r.children
+           |> consIf (dt == MovingOverlap) (drawStrikethrough [ SA.class "strikethrough" ] r)
+           |> consIf (dt == Hovered) (drawRectHandle handleEvents r)
+          )
+
+drawRectangular : List (Attribute msg) -> Rectangular a -> Svg msg
+drawRectangular attrs r =
+  let
+    dimAttrs =
       [ SA.x (String.fromFloat r.x)
       , SA.y (String.fromFloat r.y)
       , SA.width (String.fromFloat r.width)
       , SA.height (String.fromFloat r.height)
-      , Svg.Events.on "click" <| Json.map (Clicked ObjectMove {id = 0, shape = Rect r}) <| svgPointDecoder model
-      , Svg.Events.onMouseOver (MouseOver {id = 0, shape = Rect r})
-      , Svg.Events.onMouseOut MouseOut
       ]
-      []
-    :: List.map (drawObject Normal model) r.children)
+  in
+    Svg.rect (dimAttrs ++ attrs) []
 
-drawStrikethrough r =
-  Svg.g [ SA.class "strikethrough" ]
+drawStrikethrough : List (Attribute msg) -> Rectangular a -> Svg msg
+drawStrikethrough attrs r =
+  Svg.g attrs
     [ Svg.line
         [ SA.x1 (String.fromFloat r.x)
         , SA.y1 (String.fromFloat r.y)
@@ -444,24 +469,18 @@ type DrawType
   | Moving
   | MovingOverlap
 
-drawRectHandle model r =
-  Svg.circle
-    [ SA.cx (String.fromFloat r.x)
-    , SA.cy (String.fromFloat r.y)
-    , SA.r "10"
-    , Svg.Events.on "click" <| Json.map (Clicked HandleMove {id = 0, shape = Rect r}) <| svgPointDecoder model
-    ]
-    []
+drawRectHandle attrs r =
+  let
+    baseAttrs =
+      [ SA.cx (String.fromFloat r.x)
+      , SA.cy (String.fromFloat r.y)
+      , SA.r "10"
+      ]
+  in
+    Svg.circle (baseAttrs ++ attrs) []
 
 consIf b x xs =
   if b then x :: xs else xs
-
-drawRect drawType model r =
-  Svg.g [ ]
-    ([drawSimpleRect model r]
-     |> consIf (drawType == MovingOverlap) (drawStrikethrough r)
-     |> consIf (drawType == Hovered) (drawRectHandle model r)
-    )
 
 drawMoving : Model -> Object -> Svg.Svg Msg
 drawMoving model obj =
@@ -579,7 +598,7 @@ view model =
        ]
        <| List.concat
          [ List.map (drawObject Normal model) model.objects
-         , List.map (drawMoving model) <| listFromMaybe (Maybe.map moveFunction model.moving)
+         --, List.map (drawMoving model) <| listFromMaybe (Maybe.map moveFunction model.moving)
          ]
       ]
     , footer [] (List.map text model.content)
