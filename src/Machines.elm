@@ -29,6 +29,7 @@ type Machine
   | Abs Arity Machine
   | Reference String
   | Ghost (Maybe Arity) Machine
+  | Var Int
 
 
 allJust : List (Maybe a) -> Maybe (List a)
@@ -51,6 +52,23 @@ combArgs newer older =
     )
 
 
+listNth : Int -> List a -> Maybe a
+listNth n l =
+  if n == 0 then List.head l
+  else List.tail l |> Maybe.andThen (listNth (n-1))
+
+substituteVars : List (Maybe Machine) -> Machine -> Maybe Machine
+substituteVars args machine =
+  case machine of
+    Var v -> listNth v args |> Maybe.andThen identity
+    App appArgs m ->
+      Just (App (List.map (Maybe.andThen (substituteVars args)) appArgs) m)
+    Ghost maybeArity m -> substituteVars args m
+    Const v -> Just (Const v)
+    Reference s -> Just (Reference s)
+    Abs arity m -> Just (Abs arity m)
+
+
 evalMachine machine =
   case machine of
     Const v -> Just v
@@ -68,7 +86,10 @@ evalMachine machine =
     App argsNewer (App argsOlder m) ->
       combArgs argsNewer argsOlder |> Maybe.andThen (\ comb ->
       evalMachine (App comb m))
+    App args (Abs arity m) ->
+      substituteVars args m |> Maybe.andThen evalMachine
     _ -> Debug.todo "evalM"
+
       {-
       case evalBuiltin n of
         Nothing -> Nothing
@@ -101,6 +122,12 @@ testMachine2 =
       <| App [Just (Const 1), Nothing]
         <| Reference "add"
 
+idMachine =
+  Abs (Arity 1) (Var 0)
+
+testMachine3 =
+  App [Just (Const 2)] idMachine
+
   
 
 type alias Model = ()
@@ -110,7 +137,7 @@ type alias Msg = ()
 init = ()
 
 view model =
-  Html.text (Maybe.withDefault "<error>" (Maybe.map String.fromInt (evalMachine testMachine2)))
+  Html.text (Maybe.withDefault "<error>" (Maybe.map String.fromInt (evalMachine testMachine3)))
 
 update msg model = model
 
