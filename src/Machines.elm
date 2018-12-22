@@ -38,7 +38,7 @@ evalBuiltin s =
     "add" -> Just (intfun2 (+))
     "mul" -> Just (intfun2 (*))
     "and" -> Just (boolfun2 (&&))
-    "or" -> Just (boolfun2 (||))
+    "or"  -> Just (boolfun2 (||))
     _ -> Nothing
 
 type Machine
@@ -49,6 +49,28 @@ type Machine
   | Ghost (Maybe Arity) Machine
   | Var Int
   | Case
+  | Constr String
+
+getConst machine =
+  case machine of
+    Const v -> Just v
+    _ -> Nothing
+
+stringFromMachine : Machine -> Maybe String
+stringFromMachine m =
+  case m of
+    Const v -> Just (stringFromValue v)
+    App args (Constr c) ->
+      let
+        stringArgs = List.map
+          (\ maybeArg ->
+            case maybeArg of
+              Nothing -> "<not given>"
+              Just arg -> stringFromMachine arg |> Maybe.withDefault "<unhandled>"
+          ) args
+      in Just (c ++ "(" ++ String.join ", " stringArgs ++ ")")
+    Constr c -> Just c
+    _ -> Debug.todo "stringFromMachine"
 
 
 allJust : List (Maybe a) -> Maybe (List a)
@@ -92,17 +114,21 @@ substituteMachine args machine =
     Reference s -> Just (Reference s)
     Abs arity m -> Just (Abs arity m)
     Case -> Just Case
+    Constr c -> Just (Constr c)
 
 
+evalMachine : Machine -> Maybe Machine
 evalMachine machine =
   case machine of
-    Const v -> Just v
-    App args (Reference n) ->
+    Const v -> Just (Const v)
+    App maybeArgs (Reference n) ->
       evalBuiltin n |> Maybe.andThen
-        (\ (Arity arity, fun) -> allJust args |> Maybe.andThen
-          (\ args_ ->
-            if List.length args_ == arity
-            then allJust (List.map evalMachine args_) |> Maybe.andThen fun
+        (\ (Arity arity, fun) -> allJust maybeArgs |> Maybe.andThen
+          (\ args ->
+            if List.length args == arity
+            then
+              let evalArgs = List.map (evalMachine >> Maybe.andThen getConst) args
+              in allJust evalArgs |> Maybe.andThen fun |> Maybe.map Const
             else Nothing
           )
         )
@@ -117,11 +143,17 @@ evalMachine machine =
       case args of
         [Just bool, Just trueCase, Just falseCase] ->
           evalMachine bool |> Maybe.andThen (\ v -> case v of
-            BoolValue True -> evalMachine trueCase
-            BoolValue False -> evalMachine falseCase
+            Const (BoolValue True) -> evalMachine trueCase
+            Const (BoolValue False) -> evalMachine falseCase
             _ -> Nothing
             )
         _ -> Debug.todo "case"
+    Case -> Nothing
+    Constr c -> Just (Constr c)
+    App args (Constr c) ->
+      allJust args
+        |> Maybe.andThen (List.map evalMachine >> allJust)
+        |> Maybe.map (\ evalArgs -> App (List.map Just evalArgs) (Constr c))
 
     _ -> Debug.todo "evalM"
 
@@ -175,6 +207,8 @@ testMachine4 =
 testMachine5 =
   App [Just testMachine4, Just testMachine1, Just testMachine2] Case
 
+testMachine6 = App [Just one, Just (Constr "nil")] (Constr "cons")
+
 
   
 
@@ -185,7 +219,7 @@ type alias Msg = ()
 init = ()
 
 view model =
-  Html.text (Maybe.withDefault "<error>" (Maybe.map stringFromValue (evalMachine testMachine5)))
+  Html.text (Maybe.withDefault "<error>" (Maybe.andThen stringFromMachine (evalMachine testMachine6)))
 
 update msg model = model
 
