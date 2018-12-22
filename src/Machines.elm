@@ -6,21 +6,39 @@ import Test
 
 type Arity = Arity Int
 
-type alias Value = Int
+type Value
+  = IntValue Int
+  | BoolValue Bool
 
-fun2 f =
+stringFromValue v =
+  case v of
+    IntValue i -> String.fromInt i
+    BoolValue True -> "true"
+    BoolValue False -> "false"
+
+boolfun2 f =
   ( Arity 2
   , \ args ->
       case args of
-        [x, y] -> Just (f x y)
+        [BoolValue x, BoolValue y] -> Just (BoolValue (f x y))
+        _ -> Nothing
+  )
+
+intfun2 f =
+  ( Arity 2
+  , \ args ->
+      case args of
+        [IntValue x, IntValue y] -> Just (IntValue (f x y))
         _ -> Nothing
   )
 
 evalBuiltin : String -> Maybe (Arity, List Value -> Maybe Value)
 evalBuiltin s =
   case s of
-    "add" -> Just (fun2 (\ x y -> x + y))
-    "mul" -> Just (fun2 (\ x y -> x * y))
+    "add" -> Just (intfun2 (+))
+    "mul" -> Just (intfun2 (*))
+    "and" -> Just (boolfun2 (&&))
+    "or" -> Just (boolfun2 (||))
     _ -> Nothing
 
 type Machine
@@ -30,6 +48,7 @@ type Machine
   | Reference String
   | Ghost (Maybe Arity) Machine
   | Var Int
+  | Case
 
 
 allJust : List (Maybe a) -> Maybe (List a)
@@ -57,16 +76,22 @@ listNth n l =
   if n == 0 then List.head l
   else List.tail l |> Maybe.andThen (listNth (n-1))
 
-substituteVars : List (Maybe Machine) -> Machine -> Maybe Machine
-substituteVars args machine =
+substituteArgs : List (Maybe Machine) -> List (Maybe Machine) -> List (Maybe Machine)
+substituteArgs args =
+  List.map (Maybe.andThen (substituteMachine args))
+
+substituteMachine : List (Maybe Machine) -> Machine -> Maybe Machine
+substituteMachine args machine =
   case machine of
     Var v -> listNth v args |> Maybe.andThen identity
     App appArgs m ->
-      Just (App (List.map (Maybe.andThen (substituteVars args)) appArgs) m)
-    Ghost maybeArity m -> substituteVars args m
+      substituteMachine args m
+        |> Maybe.map (App (substituteArgs args appArgs))
+    Ghost maybeArity m -> substituteMachine args m
     Const v -> Just (Const v)
     Reference s -> Just (Reference s)
     Abs arity m -> Just (Abs arity m)
+    Case -> Just Case
 
 
 evalMachine machine =
@@ -87,7 +112,17 @@ evalMachine machine =
       combArgs argsNewer argsOlder |> Maybe.andThen (\ comb ->
       evalMachine (App comb m))
     App args (Abs arity m) ->
-      substituteVars args m |> Maybe.andThen evalMachine
+      substituteMachine args m |> Maybe.andThen evalMachine
+    App args Case ->
+      case args of
+        [Just bool, Just trueCase, Just falseCase] ->
+          evalMachine bool |> Maybe.andThen (\ v -> case v of
+            BoolValue True -> evalMachine trueCase
+            BoolValue False -> evalMachine falseCase
+            _ -> Nothing
+            )
+        _ -> Debug.todo "case"
+
     _ -> Debug.todo "evalM"
 
       {-
@@ -105,28 +140,41 @@ evalMachine machine =
               else Nothing
       -}
 
+zero  = Const (IntValue 0)
+one   = Const (IntValue 1)
+two   = Const (IntValue 2)
+true  = Const (BoolValue True)
+false = Const (BoolValue False)
+
 testMachine1 =
   App
     [ Just
         (App
-          [Just (Const 1), Just (Const 1)]
+          [Just one, Just one]
           (Reference "add")
         )
-    , Just (Const 2)
+    , Just two
     ]
     (Reference "mul")
 
 testMachine2 =
-  App [Just (Const 2)]
+  App [Just two]
     <| Ghost Nothing
-      <| App [Just (Const 1), Nothing]
+      <| App [Just one, Nothing]
         <| Reference "add"
 
 idMachine =
   Abs (Arity 1) (Var 0)
 
 testMachine3 =
-  App [Just (Const 2)] idMachine
+  App [Just two] idMachine
+
+testMachine4 =
+  App [Just true, Just false] (Reference "and")
+
+testMachine5 =
+  App [Just testMachine4, Just testMachine1, Just testMachine2] Case
+
 
   
 
@@ -137,7 +185,7 @@ type alias Msg = ()
 init = ()
 
 view model =
-  Html.text (Maybe.withDefault "<error>" (Maybe.map String.fromInt (evalMachine testMachine3)))
+  Html.text (Maybe.withDefault "<error>" (Maybe.map stringFromValue (evalMachine testMachine5)))
 
 update msg model = model
 
