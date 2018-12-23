@@ -1,6 +1,7 @@
 module Machines exposing (..)
 
 import Browser
+import Dict exposing (Dict)
 import Html exposing (Html)
 import Test
 
@@ -32,14 +33,13 @@ intfun2 f =
         _ -> Nothing
   )
 
-evalBuiltin : String -> Maybe (Arity, List Value -> Maybe Value)
-evalBuiltin s =
-  case s of
-    "add" -> Just (intfun2 (+))
-    "mul" -> Just (intfun2 (*))
-    "and" -> Just (boolfun2 (&&))
-    "or"  -> Just (boolfun2 (||))
-    _ -> Nothing
+builtinFunctions =
+  List.foldl (\ (name, fun) -> Dict.insert name fun) Dict.empty
+  [ ("add", intfun2 (+))
+  , ("mul", intfun2 (*))
+  , ("and", boolfun2 (&&))
+  , ("or" , boolfun2 (||))
+  ]
 
 type Machine
   = Const Value
@@ -116,35 +116,65 @@ substituteMachine args machine =
     Case -> Just Case
     Constr c -> Just (Constr c)
 
+type alias Context =
+  { machines : Dict String Machine
+  }
 
-evalMachine : Machine -> Maybe Machine
-evalMachine machine =
+idMachine =
+  Abs (Arity 1) (Var 0)
+
+notMachine =
+  Abs (Arity 1)
+    <| App [Just (Var 0), Just (Constr "false"), Just (Constr "true")]
+      <| Case
+
+defaultCtx =
+  { machines = defaultMachines
+  }
+
+defaultMachines =
+  List.foldl (\ (name, machine) -> Dict.insert name machine) Dict.empty
+  [ ("not", notMachine)
+  , ("id", idMachine)
+  ]
+
+
+evalBuiltin : String -> List Value -> Maybe Value
+evalBuiltin name args =
+  Dict.get name builtinFunctions
+    |> Maybe.andThen
+      (\ (Arity arity, fun) ->
+        if List.length args == arity
+        then fun args
+        else Nothing
+      )
+
+evalMachine : Context -> Machine -> Maybe Machine
+evalMachine ctx machine =
   case machine of
     Const v -> Just (Const v)
     App maybeArgs (Reference n) ->
-      evalBuiltin n |> Maybe.andThen
-        (\ (Arity arity, fun) -> allJust maybeArgs |> Maybe.andThen
-          (\ args ->
-            if List.length args == arity
-            then
-              let evalArgs = List.map (evalMachine >> Maybe.andThen getConst) args
-              in allJust evalArgs |> Maybe.andThen fun |> Maybe.map Const
-            else Nothing
-          )
-        )
+      case Dict.get n ctx.machines of
+        Just m -> evalMachine ctx (App maybeArgs m)
+        Nothing ->
+          maybeArgs
+            |> allJust
+            |> Maybe.andThen (List.map (evalMachine ctx >> Maybe.andThen getConst) >> allJust)
+            |> Maybe.andThen (evalBuiltin n)
+            |> Maybe.map Const
     App args (Ghost maybeArity m) ->
-      evalMachine (App args m)
+      evalMachine ctx (App args m)
     App argsNewer (App argsOlder m) ->
       combArgs argsNewer argsOlder |> Maybe.andThen (\ comb ->
-      evalMachine (App comb m))
+      evalMachine ctx (App comb m))
     App args (Abs arity m) ->
-      substituteMachine args m |> Maybe.andThen evalMachine
+      substituteMachine args m |> Maybe.andThen (evalMachine ctx)
     App args Case ->
       case args of
         [Just bool, Just trueCase, Just falseCase] ->
-          evalMachine bool |> Maybe.andThen (\ v -> case v of
-            Const (BoolValue True) -> evalMachine trueCase
-            Const (BoolValue False) -> evalMachine falseCase
+          evalMachine ctx bool |> Maybe.andThen (\ v -> case v of
+            Const (BoolValue True) -> evalMachine ctx trueCase
+            Const (BoolValue False) -> evalMachine ctx falseCase
             _ -> Nothing
             )
         _ -> Debug.todo "case"
@@ -152,7 +182,7 @@ evalMachine machine =
     Constr c -> Just (Constr c)
     App args (Constr c) ->
       allJust args
-        |> Maybe.andThen (List.map evalMachine >> allJust)
+        |> Maybe.andThen (List.map (evalMachine ctx) >> allJust)
         |> Maybe.map (\ evalArgs -> App (List.map Just evalArgs) (Constr c))
 
     _ -> Debug.todo "evalM"
@@ -195,9 +225,6 @@ testMachine2 =
       <| App [Just one, Nothing]
         <| Reference "add"
 
-idMachine =
-  Abs (Arity 1) (Var 0)
-
 testMachine3 =
   App [Just two] idMachine
 
@@ -209,6 +236,8 @@ testMachine5 =
 
 testMachine6 = App [Just one, Just (Constr "nil")] (Constr "cons")
 
+testMachine7 = App [Just testMachine4] (Reference "not")
+
 
   
 
@@ -219,7 +248,11 @@ type alias Msg = ()
 init = ()
 
 view model =
-  Html.text (Maybe.withDefault "<error>" (Maybe.andThen stringFromMachine (evalMachine testMachine6)))
+  testMachine7
+    |> evalMachine defaultCtx
+    |> Maybe.andThen stringFromMachine
+    |> Maybe.withDefault "<error>"
+    |> Html.text
 
 update msg model = model
 
