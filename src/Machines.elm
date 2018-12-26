@@ -10,6 +10,11 @@ type Arity = Arity Int
 type Value
   = IntValue Int
 
+valueEquals : Value -> Value -> Bool
+valueEquals x y =
+  case (x, y) of
+    (IntValue ix, IntValue iy) -> ix == iy
+
 stringFromValue v =
   case v of
     IntValue i -> String.fromInt i
@@ -37,6 +42,16 @@ type Machine
   | Var Int
   | Case
   | Constr String
+
+machineEquals : Machine -> Machine -> Bool
+machineEquals m1 m2 =
+  case (m1, m2) of
+    (Const v1, Const v2) -> valueEquals v1 v2
+    (App a1 (Constr c1), App a2 (Constr c2)) ->
+      c1 == c2 && List.all identity (List.map2 machineEquals a1 a2)
+    _ -> Debug.todo "machineEquals"
+
+
 
 getConst machine =
   case machine of
@@ -122,10 +137,20 @@ evalBuiltin name args =
         else Nothing
       )
 
+machineOfBool : Bool -> Machine
+machineOfBool b =
+  if b then Constr "true" else Constr "false"
+
 evalMachine : Context -> Machine -> Maybe Machine
 evalMachine ctx machine =
   case machine of
     Const v -> Just (Const v)
+    App [m1, m2] (Reference "=") ->
+      let
+        n1 = evaluateNF ctx m1
+        n2 = evaluateNF ctx m2
+      in
+        Maybe.map2 (\ x y -> machineEquals x y |> machineOfBool) n1 n2
     App args (Reference n) ->
       case Dict.get n ctx.machines of
         Just m -> evalMachine ctx (App args m)
@@ -157,11 +182,7 @@ evalMachine ctx machine =
         _ -> Debug.todo ("case: " ++ Debug.toString args)
     Case -> Nothing
     Constr c -> Just (Constr c)
-    App args (Constr c) ->
-      args
-        |> List.map (evalMachine ctx)
-        |> allJust
-        |> Maybe.map (\ evalArgs -> App evalArgs (Constr c))
+    App args (Constr c) -> Just (App args (Constr c))
 
     _ -> Debug.todo "evalM"
 
@@ -237,9 +258,18 @@ type alias Msg = ()
 
 init = ()
 
+evaluateNF ctx machine =
+  case evalMachine ctx machine of
+    Just (App args (Constr c)) ->
+      args
+        |> List.map (evaluateNF ctx)
+        |> allJust
+        |> Maybe.map (\ evalArgs -> App evalArgs (Constr c))
+    m -> m
+
 view model =
   testMachine8
-    |> evalMachine defaultCtx
+    |> evaluateNF defaultCtx
     |> Maybe.andThen stringFromMachine
     |> Maybe.withDefault "<error>"
     |> Html.text
