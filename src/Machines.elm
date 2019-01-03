@@ -4,6 +4,9 @@ import Browser
 import Dict exposing (Dict)
 import Html exposing (Html)
 import Test
+import Graph exposing (Graph)
+
+
 
 type Arity = Arity Int
 
@@ -50,6 +53,49 @@ machineEquals m1 m2 =
     (App a1 (Constr c1), App a2 (Constr c2)) ->
       c1 == c2 && List.all identity (List.map2 machineEquals a1 a2)
     _ -> Debug.todo "machineEquals"
+
+machineReferences : Machine -> List String
+machineReferences machine =
+  case machine of
+    App args m -> List.concatMap machineReferences args ++ machineReferences m
+    Abs _ m -> machineReferences m
+    Reference s -> [s]
+    Ghost _ m -> machineReferences m
+    _ -> []
+
+graphFromDependencies : List (comparable, List comparable) -> Graph comparable ()
+graphFromDependencies l =
+  let
+    nodes = List.map Tuple.first l
+    dict  = List.indexedMap (\ i x -> (x, i)) nodes |> Dict.fromList
+    edges = List.concatMap
+      (\ (node, refs) ->
+        List.filterMap
+          (\ ref ->
+            let n = Dict.get node dict
+                r = Dict.get ref  dict
+            in Maybe.map2 Tuple.pair n r
+          ) refs
+      ) l
+  in Graph.fromNodeLabelsAndEdgePairs nodes edges
+
+machineGraph : Dict String Machine -> List (String, List String)
+machineGraph machines =
+  Dict.foldl (\ k v acc -> (k, machineReferences v) :: acc) [] machines
+
+graphSCCs : Graph n e -> List (List n)
+graphSCCs graph =
+  case Graph.stronglyConnectedComponents graph of
+    Ok acyclic ->
+      [Graph.nodes graph |> List.map .label]
+    Err components ->
+      List.map (Graph.nodes >> List.map .label) components
+
+machineSCCs : Dict String Machine -> List (List String)
+machineSCCs machines =
+  machineGraph machines
+  |> graphFromDependencies
+  |> graphSCCs
 
 
 
