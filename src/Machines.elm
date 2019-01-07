@@ -1,10 +1,69 @@
 module Machines exposing (..)
 
 import Browser
+import Array exposing (Array)
 import Dict exposing (Dict)
+import IntDict exposing (IntDict)
 import Html exposing (Html)
 import Test
 import Graph exposing (Graph)
+
+
+type Type
+  = TyAbs Type Type
+  | TyConst String (List Type)
+  | TyVar Int
+
+-- all-quantified variables, followed by the type
+type alias TypeScheme = (List Int, Type)
+
+
+-- for every machine variable, map to the corresponding type
+type alias VarMap = Array Type
+type alias ConstMap = Dict String TypeScheme
+-- for every type variable, map to corresponding type
+type alias Substitution = IntDict Type
+type FreshGen = FreshGen Int
+
+emptySubstitution = IntDict.empty
+
+instantiateTypeScheme : TypeScheme -> FreshGen -> (Type, FreshGen)
+instantiateTypeScheme (quants, typ) fg =
+  Debug.todo ""
+
+freshTyVar : FreshGen -> (Type, FreshGen)
+freshTyVar (FreshGen i) =
+  (TyVar i, FreshGen (i+1))
+
+substitute : Substitution -> VarMap -> VarMap
+substitute = Debug.todo ""
+
+type TypecheckError
+  = Error
+
+algW : ConstMap -> VarMap -> FreshGen -> Machine -> Result TypecheckError (Substitution, FreshGen, Type)
+algW cm vm fg machine =
+  case machine of
+    Var v ->
+      Array.get v vm
+        |> Result.fromMaybe Error
+        |> Result.map (\ typ -> (emptySubstitution, fg, typ))
+
+    Reference r ->
+      Dict.get r cm
+        |> Result.fromMaybe Error
+        |> Result.map (\ scheme ->
+          let (typ, fg_) = instantiateTypeScheme scheme fg
+          in (emptySubstitution, fg_, typ))
+
+{-
+    App args machine ->
+      let (sm, fgm, tm) = algW cm vm fg machine
+          args_ = List.Extra.mapAccuml (\ (fga, sa) arg -> algW cm (substitute sm vm) fgm 
+          (sa, fga, ta) = 
+-}
+
+    _ -> Debug.todo ""
 
 
 
