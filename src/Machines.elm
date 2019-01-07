@@ -17,12 +17,32 @@ type Type
 -- all-quantified variables, followed by the type
 type alias TypeScheme = (List Int, Type)
 
+type alias TypeConstructor = (String, List Type)
+type alias TypeName = String
+
+-- for every type, save number of polymorphic type variables and its constructors
+type alias TypeDict = Dict TypeName (Arity, List TypeConstructor)
+
+boolType =
+  ("bool", (0, [( "true", []),
+                ("false", [])]))
+listType =
+  ("list", (1, [( "nil", []),
+                ("cons", [TyVar 0, TyConst "list" [TyVar 0]])]))
+
+defaultTypes =
+  List.foldl (\ (name, fun) -> Dict.insert name fun) Dict.empty
+  [ boolType
+  , listType
+  ]
+
 
 -- for every machine variable, map to the corresponding type
 type alias VarMap = Array Type
 type alias ConstMap = Dict String TypeScheme
 -- for every type variable, map to corresponding type
 type alias Substitution = IntDict Type
+
 type FreshGen = FreshGen Int
 
 emptySubstitution = IntDict.empty
@@ -35,33 +55,90 @@ freshTyVar : FreshGen -> (Type, FreshGen)
 freshTyVar (FreshGen i) =
   (TyVar i, FreshGen (i+1))
 
-substitute : Substitution -> VarMap -> VarMap
-substitute = Debug.todo ""
+freshTyVars : FreshGen -> Int -> (List Type, FreshGen)
+freshTyVars (FreshGen i) n =
+  let i_ = i + n
+      tyvars = List.range i (i_ - 1) |> List.map TyVar
+  in (tyvars, FreshGen i_)
+
+substituteVarMap : Substitution -> VarMap -> VarMap
+substituteVarMap = Debug.todo ""
+
+substituteType : Substitution -> Type -> Type
+substituteType = Debug.todo ""
+
+composeSubstitutions : Substitution -> Substitution -> Substitution
+composeSubstitutions = Debug.todo ""
+
+type UnifyError
+  = UnifyError
+
+unifyTypes : Type -> Type -> Result UnifyError Substitution
+unifyTypes = Debug.todo ""
 
 type TypecheckError
   = Error
+  | TypecheckUnifyError UnifyError
 
-algW : ConstMap -> VarMap -> FreshGen -> Machine -> Result TypecheckError (Substitution, FreshGen, Type)
+mapAccumlResult : (a -> b -> Result e ( a, c )) -> a -> List b -> Result e ( a, List c )
+mapAccumlResult f acc0 list0 =
+  let
+    aux acc listAcc listIn =
+      case listIn of
+        [] -> Ok (acc, List.reverse listAcc)
+        x::xs ->
+          case f acc x of
+            Ok (acc_, y) -> aux acc_ (y::listAcc) xs
+            Err e -> Err e
+
+  in aux acc0 [] list0
+
+algW : ConstMap -> VarMap -> FreshGen -> Machine -> Result TypecheckError ((Substitution, FreshGen), Type)
 algW cm vm fg machine =
   case machine of
+    Const v -> Ok ((emptySubstitution, fg), valueType v)
+
     Var v ->
       Array.get v vm
         |> Result.fromMaybe Error
-        |> Result.map (\ typ -> (emptySubstitution, fg, typ))
+        |> Result.map (\ typ -> ((emptySubstitution, fg), typ))
 
     Reference r ->
       Dict.get r cm
         |> Result.fromMaybe Error
         |> Result.map (\ scheme ->
           let (typ, fg_) = instantiateTypeScheme scheme fg
-          in (emptySubstitution, fg_, typ))
+          in ((emptySubstitution, fg_), typ))
 
-{-
-    App args machine ->
-      let (sm, fgm, tm) = algW cm vm fg machine
-          args_ = List.Extra.mapAccuml (\ (fga, sa) arg -> algW cm (substitute sm vm) fgm 
-          (sa, fga, ta) = 
--}
+    App args m ->
+      algW cm vm fg m
+        |> Result.andThen
+          (\ ((sm, fgm), tm) ->
+            mapAccumlResult
+              (\ (si, fgi) argi -> algW cm (substituteVarMap si vm) fgi argi)
+              (sm, fgm) args
+              |> Result.andThen
+                (\ ((sa, fga), ta) ->
+                  let (beta, fgbeta) = freshTyVar fga
+                  in
+                    unifyTypes (substituteType sa tm) (List.foldr TyAbs beta ta)
+                      |> Result.mapError TypecheckUnifyError
+                      |> Result.map
+                        (\ v ->
+                          ((composeSubstitutions v sa, fgbeta), substituteType v beta)
+                        )
+                )
+          )
+
+    Abs (Arity arity) m ->
+      let (betan, fgb) = freshTyVars fg arity
+          vm_ = Array.fromList betan
+      in
+        algW cm vm_ fgb machine
+        |> Result.map (\ ((sub, fgc), typ) -> ((sub, fgc), substituteType sub (List.foldr TyAbs typ betan)))
+
+
+
 
     _ -> Debug.todo ""
 
@@ -80,6 +157,10 @@ valueEquals x y =
 stringFromValue v =
   case v of
     IntValue i -> String.fromInt i
+
+valueType v =
+  case v of
+    IntValue _ -> TyConst "int" []
 
 intfun2 f =
   ( Arity 2
