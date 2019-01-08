@@ -19,22 +19,40 @@ type alias TypeScheme = (List Int, Type)
 
 type alias TypeConstructor = (String, List Type)
 type alias TypeName = String
+type alias ConstructorName = String
 
 -- for every type, save number of polymorphic type variables and its constructors
 type alias TypeDict = Dict TypeName (Arity, List TypeConstructor)
+type alias ConstructorDict = Dict String Type
 
 boolType =
-  ("bool", (0, [( "true", []),
-                ("false", [])]))
+  ("bool", (Arity 0, [( "true", []),
+                      ("false", [])]))
 listType =
-  ("list", (1, [( "nil", []),
-                ("cons", [TyVar 0, TyConst "list" [TyVar 0]])]))
+  ("list", (Arity 1, [( "nil", []),
+                      ("cons", [TyVar 0, TyConst "list" [TyVar 0]])]))
+
+typeOfCase (Arity arity) constructors =
+  List.foldr TyAbs (TyVar arity) (List.map (\ (name, args) -> List.foldr TyAbs (TyVar arity) args) constructors)
 
 defaultTypes =
-  List.foldl (\ (name, fun) -> Dict.insert name fun) Dict.empty
   [ boolType
   , listType
   ]
+
+typeOfNameAndArity name (Arity arity) =
+  TyConst name (List.range 0 (arity-1) |> List.map TyVar)
+
+typeConstructors : (TypeName, (Arity, List TypeConstructor)) -> List (String, Type)
+typeConstructors (typeName, (typeArity, constructors)) =
+  List.map (\ (name, args) -> (name, List.foldr TyAbs (typeOfNameAndArity typeName typeArity) args)) constructors
+
+typeToString : Type -> String
+typeToString typ =
+  case typ of
+    TyAbs t1 t2 -> "(" ++ typeToString t1 ++ " → " ++ typeToString t2 ++ ")"
+    TyConst s args -> s ++ " " ++ String.join " " (List.map typeToString args)
+    TyVar v -> "t" ++ String.fromInt v
 
 
 -- for every machine variable, map to the corresponding type
@@ -45,7 +63,11 @@ type alias Substitution = IntDict Type
 
 type FreshGen = FreshGen Int
 
+initFreshGen = FreshGen 0
+
 emptySubstitution = IntDict.empty
+emptyVarMap = Array.empty
+emptyConstMap = Dict.empty
 
 instantiateTypeScheme : TypeScheme -> FreshGen -> (Type, FreshGen)
 instantiateTypeScheme (quants, typ) fg =
@@ -55,6 +77,26 @@ freshTyVar : FreshGen -> (Type, FreshGen)
 freshTyVar (FreshGen i) =
   (TyVar i, FreshGen (i+1))
 
+maxTyVar : Type -> Int
+maxTyVar typ =
+  case typ of
+    TyAbs t1 t2 -> max (maxTyVar t1) (maxTyVar t2)
+    TyConst s args -> List.map maxTyVar args |> List.maximum |> Maybe.withDefault (-1)
+    TyVar v -> v
+
+offsetTyVars : Int -> Type -> Type
+offsetTyVars off typ =
+  case typ of
+    TyAbs t1 t2 -> TyAbs (offsetTyVars off t1) (offsetTyVars off t2)
+    TyConst s args -> TyConst s (List.map (offsetTyVars off) args)
+    TyVar v -> TyVar (v + off)
+
+refreshType : Type -> FreshGen -> (Type, FreshGen)
+refreshType typ (FreshGen i) =
+  (offsetTyVars i typ, FreshGen (i + maxTyVar typ + 1))
+
+
+
 freshTyVars : FreshGen -> Int -> (List Type, FreshGen)
 freshTyVars (FreshGen i) n =
   let i_ = i + n
@@ -62,23 +104,41 @@ freshTyVars (FreshGen i) n =
   in (tyvars, FreshGen i_)
 
 substituteVarMap : Substitution -> VarMap -> VarMap
-substituteVarMap = Debug.todo ""
+substituteVarMap subst vm =
+  Array.map (substituteType subst) vm
 
 substituteType : Substitution -> Type -> Type
-substituteType = Debug.todo ""
+substituteType subst typ =
+  case typ of
+    TyAbs t1 t2 -> TyAbs (substituteType subst t1) (substituteType subst t2)
+    TyConst s args -> TyConst s (List.map (substituteType subst) args)
+    TyVar v ->
+      case IntDict.get v subst of
+        Nothing -> TyVar v
+        Just typ_ -> typ_
 
+-- TODO: handle case when substitutions clash on some variable?
 composeSubstitutions : Substitution -> Substitution -> Substitution
-composeSubstitutions = Debug.todo ""
+composeSubstitutions s1 s2 =
+  IntDict.map (\ k v -> substituteType s1 v) s2
+    |> IntDict.union s1
 
 type UnifyError
   = UnifyError
 
 unifyTypes : Type -> Type -> Result UnifyError Substitution
-unifyTypes = Debug.todo ""
+unifyTypes t1 t2 = Debug.todo (Debug.toString (t1, t2))
+{-
+  case (t1, t2) of
+    (TyVar v1, TyVar v2) -> {-let _ = Debug.log "unifyTypes" (v1, v2) in-} Debug.todo ""
+    _ -> Debug.todo ""
+    -}
 
 type TypecheckError
   = Error
   | TypecheckUnifyError UnifyError
+  | CaseTypeUnknown
+  | ConstructorUnknown
 
 mapAccumlResult : (a -> b -> Result e ( a, c )) -> a -> List b -> Result e ( a, List c )
 mapAccumlResult f acc0 list0 =
@@ -92,6 +152,20 @@ mapAccumlResult f acc0 list0 =
             Err e -> Err e
 
   in aux acc0 [] list0
+
+type alias TypecheckContext =
+  { constMap : ConstMap
+  , types : TypeDict
+  , constructors : ConstructorDict
+  }
+
+defaultTypecheckContext : TypecheckContext
+defaultTypecheckContext =
+  { constMap = emptyConstMap
+  , types = Dict.fromList defaultTypes
+  , constructors = Dict.fromList <| List.concatMap typeConstructors defaultTypes
+  }
+
 
 algW : ConstMap -> VarMap -> FreshGen -> Machine -> Result TypecheckError ((Substitution, FreshGen), Type)
 algW cm vm fg machine =
@@ -134,11 +208,29 @@ algW cm vm fg machine =
       let (betan, fgb) = freshTyVars fg arity
           vm_ = Array.fromList betan
       in
-        algW cm vm_ fgb machine
+        algW cm vm_ fgb m
         |> Result.map (\ ((sub, fgc), typ) -> ((sub, fgc), substituteType sub (List.foldr TyAbs typ betan)))
 
+    Case typeName ->
+      -- TODO: make type check context an argument of algW
+      Dict.get typeName defaultTypecheckContext.types
+        |> Result.fromMaybe CaseTypeUnknown
+        |> Result.map
+          (\ (arity, constructors) ->
+            let
+              ty = TyAbs (typeOfNameAndArity typeName arity) (typeOfCase arity constructors)
+              (ty_, fg_) = refreshType ty fg
+            in ((emptySubstitution, fg_), ty_)
+          )
 
-
+    Constr constructorName ->
+      Dict.get constructorName defaultTypecheckContext.constructors
+        |> Result.fromMaybe ConstructorUnknown
+        |> Result.map
+          (\ typ ->
+            let (typ_, fg_) = refreshType typ fg
+            in  ((emptySubstitution, fg_), typ_)
+          )
 
     _ -> Debug.todo ""
 
@@ -171,7 +263,7 @@ intfun2 f =
   )
 
 builtinFunctions =
-  List.foldl (\ (name, fun) -> Dict.insert name fun) Dict.empty
+  Dict.fromList
   [ ("add", intfun2 (+))
   , ("mul", intfun2 (*))
   ]
@@ -183,8 +275,8 @@ type Machine
   | Reference String
   | Ghost (Maybe Arity) Machine
   | Var Int
-  | Case
-  | Constr String
+  | Case TypeName
+  | Constr ConstructorName
 
 machineEquals : Machine -> Machine -> Bool
 machineEquals m1 m2 =
@@ -274,7 +366,7 @@ substituteMachine arg machine =
     Const v -> Const v
     Reference s -> Reference s
     Abs arity m -> Abs arity m
-    Case -> Case
+    Case typeName -> Case typeName
     Constr c -> Constr c
 
 type alias Context =
@@ -284,15 +376,18 @@ type alias Context =
 idMachine =
   Abs (Arity 1) (Var 0)
 
+constMachine =
+  Abs (Arity 2) (Var 0)
+
 notMachine =
   Abs (Arity 1)
     <| App [Var 0, Constr "false", Constr "true"]
-      <| Case
+      <| Case "bool"
 
 andMachine =
   Abs (Arity 2)
-    <| App [Var 0, App [Var 1, true, false] Case, false]
-      <| Case
+    <| App [Var 0, App [Var 1, true, false] (Case "bool"), false]
+      <| Case "bool"
 
 yCombinator =
   Abs (Arity 1)
@@ -305,7 +400,7 @@ defaultCtx =
   }
 
 defaultMachines =
-  List.foldl (\ (name, machine) -> Dict.insert name machine) Dict.empty
+  Dict.fromList
   [ ("not", notMachine)
   , ("and", andMachine)
   , ("id", idMachine)
@@ -357,7 +452,7 @@ evalMachine ctx machine =
         substituteMachine arg m |> Abs (Arity (arity - 1)) |> App args |> evalMachine ctx
     App [] m -> evalMachine ctx m
     Abs (Arity 0) m -> evalMachine ctx m
-    App args Case ->
+    App args (Case typeName) ->
       case args of
         [bool, trueCase, falseCase] ->
           evalMachine ctx bool |> Maybe.andThen (\ v -> case v of
@@ -366,7 +461,7 @@ evalMachine ctx machine =
             _ -> Nothing
             )
         _ -> Debug.todo ("case: " ++ Debug.toString args)
-    Case -> Nothing
+    Case typeName -> Nothing
     Constr c -> Just (Constr c)
     App args (Constr c) -> Just (App args (Constr c))
 
@@ -417,7 +512,7 @@ testMachine4 =
   App [true, false] (Reference "and")
 
 testMachine5 =
-  App [testMachine4, testMachine1, testMachine2] Case
+  App [testMachine4, testMachine1, testMachine2] <| Case "bool"
 
 testMachine6 = App [one, (Constr "nil")] (Constr "cons")
 
@@ -430,7 +525,7 @@ alwaysTrueMachineY =
       , (Constr "true")
       , (App [(Constr "true")] (Var 0))
       ]
-      Case
+      <| Case "bool"
 
 testMachine8 =
   App [alwaysTrueMachineY, Constr "false"] (Reference "Y")
@@ -453,11 +548,20 @@ evaluateNF ctx machine =
         |> Maybe.map (\ evalArgs -> App evalArgs (Constr c))
     m -> m
 
+{-
 view model =
   testMachine8
     |> evaluateNF defaultCtx
     |> Maybe.andThen stringFromMachine
     |> Maybe.withDefault "<error>"
+    |> Html.text
+-}
+
+view model =
+  Case "list"
+    |> algW emptyConstMap emptyVarMap initFreshGen
+    |> Result.map (\ (acc, typ) -> typeToString typ)
+    |> Debug.toString
     |> Html.text
 
 update msg model = model
