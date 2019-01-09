@@ -95,6 +95,13 @@ refreshType : Type -> FreshGen -> (Type, FreshGen)
 refreshType typ (FreshGen i) =
   (offsetTyVars i typ, FreshGen (i + maxTyVar typ + 1))
 
+typeContainsTyVar : Int -> Type -> Bool
+typeContainsTyVar var typ =
+  case typ of
+    TyVar v -> v == var
+    TyConst c args -> List.any (typeContainsTyVar var) args
+    TyAbs t1 t2 -> typeContainsTyVar var t1 || typeContainsTyVar var t2
+
 
 
 freshTyVars : FreshGen -> Int -> (List Type, FreshGen)
@@ -115,7 +122,7 @@ substituteType subst typ =
     TyVar v ->
       case IntDict.get v subst of
         Nothing -> TyVar v
-        Just typ_ -> typ_
+        Just typ_ -> substituteType subst typ_
 
 -- TODO: handle case when substitutions clash on some variable?
 composeSubstitutions : Substitution -> Substitution -> Substitution
@@ -123,16 +130,66 @@ composeSubstitutions s1 s2 =
   IntDict.map (\ k v -> substituteType s1 v) s2
     |> IntDict.union s1
 
+{-
+substitutionIsTrivial : Int -> Type -> Substitution -> Maybe Bool
+substitutionIsTrivial var typ subst =
+  case typ of
+    TyVar v ->
+      if v == var
+      then Just True
+      else
+        case IntDict.get v subst of
+          Nothing -> Just False
+          Just t -> substitutionIsTrivial var t subst
+    _ -> 
+
+
+substitutionAdd : Int -> Type -> Substitution -> Maybe Substitution
+substitutionAdd var typ subst =
+-}
+
+
 type UnifyError
   = UnifyError
+  | ConstrArgsCountsDiffer
+  | ConstructorsDiffer
+  | OccursCheckFailed
 
-unifyTypes : Type -> Type -> Result UnifyError Substitution
-unifyTypes t1 t2 = Debug.todo (Debug.toString (t1, t2))
-{-
+-- precondition: substitution must be non-circular!
+-- ({x -> x} is not allowed, neither is {x -> list x})
+unifyTypes : Type -> Type -> Substitution -> Result UnifyError Substitution
+unifyTypes t1 t2 subst =
   case (t1, t2) of
-    (TyVar v1, TyVar v2) -> {-let _ = Debug.log "unifyTypes" (v1, v2) in-} Debug.todo ""
-    _ -> Debug.todo ""
-    -}
+    (TyVar v, _) ->
+      let t2s = substituteType subst t2 in
+      case IntDict.get v subst of
+        Nothing ->
+          if t1 == t2s
+          then Ok subst
+          else
+            if typeContainsTyVar v t2s
+            then Err OccursCheckFailed
+            else Ok (IntDict.insert v t2 subst)
+        Just t -> unifyTypes t t2s subst
+    (_, TyVar _) -> unifyTypes t2 t1 subst
+    (TyAbs t11 t12, TyAbs t21 t22) ->
+      subst |> unifyTypes t11 t21 |> Result.andThen (unifyTypes t12 t22)
+    (TyConst c1 args1, TyConst c2 args2) ->
+      if c1 == c2
+      then
+        if List.length args1 == List.length args2
+        then
+          List.map2 Tuple.pair args1 args2
+            |> List.foldl
+              (\ (arg1, arg2) acc ->
+                acc |> Result.andThen (unifyTypes arg1 arg2))
+              (Ok subst)
+        else
+          Err ConstrArgsCountsDiffer
+      else
+        Err ConstructorsDiffer
+    (TyAbs _ _, TyConst _ _) -> Err UnifyError
+    (TyConst _ _, TyAbs _ _) -> Err UnifyError
 
 type TypecheckError
   = Error
@@ -195,7 +252,7 @@ algW cm vm fg machine =
                 (\ ((sa, fga), ta) ->
                   let (beta, fgbeta) = freshTyVar fga
                   in
-                    unifyTypes (substituteType sa tm) (List.foldr TyAbs beta ta)
+                    unifyTypes (substituteType sa tm) (List.foldr TyAbs beta ta) emptySubstitution
                       |> Result.mapError TypecheckUnifyError
                       |> Result.map
                         (\ v ->
@@ -558,7 +615,7 @@ view model =
 -}
 
 view model =
-  Case "list"
+  notMachine
     |> algW emptyConstMap emptyVarMap initFreshGen
     |> Result.map (\ (acc, typ) -> typeToString typ)
     |> Debug.toString
