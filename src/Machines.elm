@@ -159,18 +159,14 @@ type UnifyError
 -- ({x -> x} is not allowed, neither is {x -> list x})
 unifyTypes : Type -> Type -> Substitution -> Result UnifyError Substitution
 unifyTypes t1 t2 subst =
-  case (t1, t2) of
-    (TyVar v, _) ->
-      let t2s = substituteType subst t2 in
-      case IntDict.get v subst of
-        Nothing ->
-          if t1 == t2s
-          then Ok subst
-          else
-            if typeContainsTyVar v t2s
-            then Err OccursCheckFailed
-            else Ok (IntDict.insert v t2 subst)
-        Just t -> unifyTypes t t2s subst
+  case (substituteType subst t1, substituteType subst t2) of
+    (TyVar v as t1s, t2s) ->
+      if t1s == t2s
+      then Ok subst
+      else
+        if typeContainsTyVar v t2s
+        then Err OccursCheckFailed
+        else Ok (IntDict.insert v t2 subst)
     (_, TyVar _) -> unifyTypes t2 t1 subst
     (TyAbs t11 t12, TyAbs t21 t22) ->
       subst |> unifyTypes t11 t21 |> Result.andThen (unifyTypes t12 t22)
@@ -193,6 +189,8 @@ unifyTypes t1 t2 subst =
 
 type TypecheckError
   = Error
+  | UnboundVariable
+  | UnknownReference
   | TypecheckUnifyError UnifyError
   | CaseTypeUnknown
   | ConstructorUnknown
@@ -210,6 +208,17 @@ mapAccumlResult f acc0 list0 =
 
   in aux acc0 [] list0
 
+mapAccumrResult : (a -> b -> Result e ( a, c )) -> a -> List b -> Result e ( a, List c )
+mapAccumrResult f acc0 =
+  List.foldr
+    (\ x ->
+      Result.andThen
+        (\ (acc, l) ->
+          f acc x
+            |> Result.map (\ (acc_, y) -> (acc_, y::l))
+        )
+    ) (Ok (acc0, []))
+
 type alias TypecheckContext =
   { constMap : ConstMap
   , types : TypeDict
@@ -224,6 +233,23 @@ defaultTypecheckContext =
   }
 
 
+algWApp cm vm m2 ((subst1, fg1), typ1) =
+  algW cm (substituteVarMap subst1 vm) fg1 m2
+    |> Result.andThen
+      (\ ((subst2, fg2), typ2) ->
+        let (beta, fgbeta) = freshTyVar fg2
+        in
+          unifyTypes (substituteType subst2 typ1) (TyAbs typ2 beta) emptySubstitution
+            |> Result.mapError TypecheckUnifyError
+            |> Result.map
+              (\ v ->
+                let
+                  subst = composeSubstitutions v (composeSubstitutions subst2 subst1)
+                  typ = substituteType v beta
+                in ((subst, fgbeta), typ)
+              )
+      )
+
 algW : ConstMap -> VarMap -> FreshGen -> Machine -> Result TypecheckError ((Substitution, FreshGen), Type)
 algW cm vm fg machine =
   case machine of
@@ -231,21 +257,24 @@ algW cm vm fg machine =
 
     Var v ->
       Array.get v vm
-        |> Result.fromMaybe Error
+        |> Result.fromMaybe UnboundVariable
         |> Result.map (\ typ -> ((emptySubstitution, fg), typ))
 
     Reference r ->
       Dict.get r cm
-        |> Result.fromMaybe Error
+        |> Result.fromMaybe UnknownReference
         |> Result.map (\ scheme ->
           let (typ, fg_) = instantiateTypeScheme scheme fg
           in ((emptySubstitution, fg_), typ))
 
     App args m ->
+      List.foldr (\ arg -> Result.andThen (algWApp cm vm arg)) (algW cm vm fg m) args
+        {-
       algW cm vm fg m
         |> Result.andThen
+
           (\ ((sm, fgm), tm) ->
-            mapAccumlResult
+            mapAccumrResult
               (\ (si, fgi) argi -> algW cm (substituteVarMap si vm) fgi argi)
               (sm, fgm) args
               |> Result.andThen
@@ -260,6 +289,7 @@ algW cm vm fg machine =
                         )
                 )
           )
+        -}
 
     Abs (Arity arity) m ->
       let (betan, fgb) = freshTyVars fg arity
@@ -267,6 +297,7 @@ algW cm vm fg machine =
       in
         algW cm vm_ fgb m
         |> Result.map (\ ((sub, fgc), typ) -> ((sub, fgc), substituteType sub (List.foldr TyAbs typ betan)))
+        --|> Debug.log "Abs"
 
     Case typeName ->
       -- TODO: make type check context an argument of algW
@@ -279,6 +310,7 @@ algW cm vm fg machine =
               (ty_, fg_) = refreshType ty fg
             in ((emptySubstitution, fg_), ty_)
           )
+        --|> Debug.log "Case"
 
     Constr constructorName ->
       Dict.get constructorName defaultTypecheckContext.constructors
@@ -614,8 +646,13 @@ view model =
     |> Html.text
 -}
 
+compactAndMachine =
+  Abs (Arity 2)
+    <| App [Var 0, Var 1, false]
+      <| Case "bool"
+
 view model =
-  notMachine
+  compactAndMachine
     |> algW emptyConstMap emptyVarMap initFreshGen
     |> Result.map (\ (acc, typ) -> typeToString typ)
     |> Debug.toString
