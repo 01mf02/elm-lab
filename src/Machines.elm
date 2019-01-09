@@ -51,7 +51,7 @@ typeToString : Type -> String
 typeToString typ =
   case typ of
     TyAbs t1 t2 -> "(" ++ typeToString t1 ++ " → " ++ typeToString t2 ++ ")"
-    TyConst s args -> s ++ " " ++ String.join " " (List.map typeToString args)
+    TyConst s args -> String.join " " (s :: List.map typeToString args)
     TyVar v -> "t" ++ String.fromInt v
 
 
@@ -130,23 +130,6 @@ composeSubstitutions s1 s2 =
   IntDict.map (\ k v -> substituteType s1 v) s2
     |> IntDict.union s1
 
-{-
-substitutionIsTrivial : Int -> Type -> Substitution -> Maybe Bool
-substitutionIsTrivial var typ subst =
-  case typ of
-    TyVar v ->
-      if v == var
-      then Just True
-      else
-        case IntDict.get v subst of
-          Nothing -> Just False
-          Just t -> substitutionIsTrivial var t subst
-    _ -> 
-
-
-substitutionAdd : Int -> Type -> Substitution -> Maybe Substitution
-substitutionAdd var typ subst =
--}
 
 
 type UnifyError
@@ -177,8 +160,7 @@ unifyTypes t1 t2 subst =
         then
           List.map2 Tuple.pair args1 args2
             |> List.foldl
-              (\ (arg1, arg2) acc ->
-                acc |> Result.andThen (unifyTypes arg1 arg2))
+              (\ (arg1, arg2) -> Result.andThen (unifyTypes arg1 arg2))
               (Ok subst)
         else
           Err ConstrArgsCountsDiffer
@@ -195,6 +177,7 @@ type TypecheckError
   | CaseTypeUnknown
   | ConstructorUnknown
 
+{-
 mapAccumlResult : (a -> b -> Result e ( a, c )) -> a -> List b -> Result e ( a, List c )
 mapAccumlResult f acc0 list0 =
   let
@@ -218,6 +201,7 @@ mapAccumrResult f acc0 =
             |> Result.map (\ (acc_, y) -> (acc_, y::l))
         )
     ) (Ok (acc0, []))
+-}
 
 type alias TypecheckContext =
   { constMap : ConstMap
@@ -263,33 +247,14 @@ algW cm vm fg machine =
     Reference r ->
       Dict.get r cm
         |> Result.fromMaybe UnknownReference
-        |> Result.map (\ scheme ->
-          let (typ, fg_) = instantiateTypeScheme scheme fg
-          in ((emptySubstitution, fg_), typ))
+        |> Result.map
+          (\ scheme ->
+            let (typ, fg_) = instantiateTypeScheme scheme fg
+            in ((emptySubstitution, fg_), typ)
+          )
 
     App args m ->
-      List.foldr (\ arg -> Result.andThen (algWApp cm vm arg)) (algW cm vm fg m) args
-        {-
-      algW cm vm fg m
-        |> Result.andThen
-
-          (\ ((sm, fgm), tm) ->
-            mapAccumrResult
-              (\ (si, fgi) argi -> algW cm (substituteVarMap si vm) fgi argi)
-              (sm, fgm) args
-              |> Result.andThen
-                (\ ((sa, fga), ta) ->
-                  let (beta, fgbeta) = freshTyVar fga
-                  in
-                    unifyTypes (substituteType sa tm) (List.foldr TyAbs beta ta) emptySubstitution
-                      |> Result.mapError TypecheckUnifyError
-                      |> Result.map
-                        (\ v ->
-                          ((composeSubstitutions v sa, fgbeta), substituteType v beta)
-                        )
-                )
-          )
-        -}
+      List.foldl (\ arg -> Result.andThen (algWApp cm vm arg)) (algW cm vm fg m) args
 
     Abs (Arity arity) m ->
       let (betan, fgb) = freshTyVars fg arity
@@ -576,6 +541,7 @@ one   = Const (IntValue 1)
 two   = Const (IntValue 2)
 true  = Constr "true"
 false = Constr "false"
+boolTy = TyConst "bool" []
 
 testMachine1 =
   App
