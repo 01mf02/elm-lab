@@ -22,6 +22,7 @@ type alias TypeConstructor = (String, List Type)
 type alias TypeName = String
 type alias ConstructorName = String
 type alias MachineName = String
+type alias VariableIndex = Int
 
 -- for every type, save number of polymorphic type variables and its constructors
 type alias TypeDict = Dict TypeName (Arity, List TypeConstructor)
@@ -81,7 +82,7 @@ freshTyVar : FreshGen -> (Type, FreshGen)
 freshTyVar (FreshGen i) =
   (TyVar i, FreshGen (i+1))
 
-maxTyVar : Type -> Int
+maxTyVar : Type -> VariableIndex
 maxTyVar typ =
   case typ of
     TyAbs t1 t2 -> max (maxTyVar t1) (maxTyVar t2)
@@ -95,11 +96,18 @@ offsetTyVars off typ =
     TyConst s args -> TyConst s (List.map (offsetTyVars off) args)
     TyVar v -> TyVar (v + off)
 
+typeVars : Type -> List VariableIndex
+typeVars typ =
+  case typ of
+    TyAbs t1 t2 -> typeVars t1 ++ typeVars t2
+    TyConst s args -> List.concatMap typeVars args
+    TyVar v -> [v]
+
 refreshType : Type -> FreshGen -> (Type, FreshGen)
 refreshType typ (FreshGen i) =
   (offsetTyVars i typ, FreshGen (i + maxTyVar typ + 1))
 
-typeContainsTyVar : Int -> Type -> Bool
+typeContainsTyVar : VariableIndex -> Type -> Bool
 typeContainsTyVar var typ =
   case typ of
     TyVar v -> v == var
@@ -128,15 +136,21 @@ substituteVarMap : Substitution -> VarMap -> VarMap
 substituteVarMap subst vm =
   Array.map (substituteType subst) vm
 
+mapTyVars : (VariableIndex -> Type) -> Type -> Type
+mapTyVars f typ =
+  case typ of
+    TyAbs t1 t2 -> TyAbs (mapTyVars f t1) (mapTyVars f t2)
+    TyConst s args -> TyConst s (List.map (mapTyVars f) args)
+    TyVar v -> f v
+
 substituteType : Substitution -> Type -> Type
 substituteType subst typ =
-  case typ of
-    TyAbs t1 t2 -> TyAbs (substituteType subst t1) (substituteType subst t2)
-    TyConst s args -> TyConst s (List.map (substituteType subst) args)
-    TyVar v ->
+  let
+    substitute v =
       case IntDict.get v subst of
         Nothing -> TyVar v
         Just typ_ -> substituteType subst typ_
+  in mapTyVars substitute typ
 
 -- TODO: handle case when substitutions clash on some variable?
 composeSubstitutions : Substitution -> Substitution -> Substitution
@@ -305,7 +319,34 @@ algW ctx vm fg machine =
 
 
 normaliseType : Type -> Type
-normaliseType = Debug.todo ""
+normaliseType typ =
+  let
+    subst =
+      typeVars typ
+        |> ListE.unique
+        |> List.indexedMap (\ index var -> (var, TyVar index))
+        |> IntDict.fromList
+
+    substitute v = IntDict.get v subst |> Maybe.withDefault (TyVar v)
+
+  in mapTyVars substitute typ
+
+substituteDefinedMap subst ctx =
+  {ctx | definedMap = Dict.map (\ _ -> substituteType subst) ctx.definedMap}
+
+algWRecursiveStep machineName machine (ctx, fg) =
+  algW ctx emptyVarMap fg machine
+    |> Result.andThen
+      (\ ((subst, fg_), inferredTyp) ->
+        Dict.get machineName ctx.definedMap
+          |> Result.fromMaybe Error
+          |> Result.andThen
+            (\ initTyp ->
+              unifyTypes initTyp inferredTyp subst
+                |> Result.mapError TypecheckUnifyError
+            )
+          |> Result.map (\ subst_ -> (substituteDefinedMap subst_ ctx, fg_))
+      )
 
 algWRecursive : TypecheckContext -> List (MachineName, Machine) -> Result TypecheckError TypecheckContext
 algWRecursive initCtx machines =
@@ -317,34 +358,13 @@ algWRecursive initCtx machines =
   in
     List.foldl
       (\ (machineName, machine) ->
-        Result.andThen
-          (\ (ctx, fg) ->
-            algW ctx emptyVarMap fg machine
-              |> Result.andThen
-                (\ ((subst, fg_), inferredTyp) ->
-                  Dict.get machineName ctx.definedMap
-                    |> Result.fromMaybe Error
-                    |> Result.andThen
-                      (\ initTyp ->
-                        unifyTypes initTyp inferredTyp subst
-                          |> Result.mapError TypecheckUnifyError
-                          |> Result.map
-                            (\ subst_ ->
-                              let
-                                ctx_ = {ctx | definedMap = Dict.map (\ _ typ -> substituteType subst_ typ) ctx.definedMap}
-                              in (ctx_, fg_)
-                            )
-                      )
-                )
-          )
+        Result.andThen (algWRecursiveStep machineName machine)
       ) initAcc namesMachines
-        |> Result.map
-          (\ (ctx, fg) ->
-            let
-              normalised =
-                Dict.map (\ name typ -> normaliseType typ) ctx.definedMap
-            in {initCtx | constMap = Dict.union normalised ctx.constMap}
-          )
+      |> Result.map
+        (\ (ctx, fg) ->
+          let normalised = Dict.map (\ _ -> normaliseType) ctx.definedMap
+          in {initCtx | constMap = Dict.union normalised ctx.constMap}
+        )
 
 type Arity = Arity Int
 
