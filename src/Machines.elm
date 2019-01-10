@@ -315,8 +315,6 @@ algW ctx vm fg machine =
             in  ((emptySubstitution, fg_), typ_)
           )
 
-    _ -> Debug.todo ""
-
 
 normaliseType : Type -> Type
 normaliseType typ =
@@ -348,8 +346,8 @@ algWRecursiveStep machineName machine (ctx, fg) =
           |> Result.map (\ subst_ -> (substituteDefinedMap subst_ ctx, fg_))
       )
 
-algWRecursive : TypecheckContext -> List (MachineName, Machine) -> Result TypecheckError TypecheckContext
-algWRecursive initCtx machines =
+algWRecursive : List (MachineName, Machine) -> TypecheckContext -> Result TypecheckError TypecheckContext
+algWRecursive machines initCtx =
   let
     (initFg, machinesTypes) = freshTyVarsList initFreshGen machines
     namesTypes = List.map (\ ((name, m), typ) -> (name, typ)) machinesTypes
@@ -403,7 +401,6 @@ type Machine
   | App (List Machine) Machine
   | Abs Arity Machine
   | Reference String
-  | Ghost (Maybe Arity) Machine
   | Var Int
   | Case TypeName
   | Constr ConstructorName
@@ -422,7 +419,6 @@ machineReferences machine =
     App args m -> List.concatMap machineReferences args ++ machineReferences m
     Abs _ m -> machineReferences m
     Reference s -> [s]
-    Ghost _ m -> machineReferences m
     _ -> []
 
 graphFromDependencies : List (comparable, List comparable) -> Graph comparable ()
@@ -449,16 +445,16 @@ graphSCCs : Graph n e -> List (List n)
 graphSCCs graph =
   case Graph.stronglyConnectedComponents graph of
     Ok acyclic ->
-      [Graph.nodes graph |> List.map .label]
+      Graph.nodes graph |> List.map (.label >> List.singleton)
     Err components ->
       List.map (Graph.nodes >> List.map .label) components
 
-machineSCCs : Dict String Machine -> List (List String)
+machineSCCs : Dict MachineName Machine -> List (List (MachineName, Machine))
 machineSCCs machines =
   machineGraph machines
   |> graphFromDependencies
   |> graphSCCs
-
+  |> List.map (List.filterMap (\ name -> Dict.get name machines |> Maybe.map (Tuple.pair name)))
 
 
 getConst machine =
@@ -492,7 +488,6 @@ substituteMachine arg machine =
       else Var (v - 1)
     App args m ->
       substituteMachine arg m |> App (List.map (substituteMachine arg) args)
-    Ghost maybeArity m -> substituteMachine arg m
     Const v -> Const v
     Reference s -> Reference s
     Abs arity m -> Abs arity m
@@ -523,7 +518,7 @@ yCombinator =
   Abs (Arity 1)
     <| App
          [App [Var 0] (Reference "Y")]
-         (Ghost Nothing (Var 0))
+         (Var 0)
 
 defaultCtx =
   { machines = Dict.fromList defaultMachines
@@ -570,8 +565,6 @@ evalMachine ctx machine =
             |> allJust
             |> Maybe.andThen (evalBuiltin n)
             |> Maybe.map Const
-    App args (Ghost maybeArity m) ->
-      evalMachine ctx (App args m)
     App argsNewer (App argsOlder m) ->
       evalMachine ctx (App (argsOlder ++ argsNewer) m)
     App (arg :: args) (Abs (Arity arity) m) ->
@@ -631,9 +624,8 @@ testMachine1 =
 
 testMachine2 =
   App [two]
-    <| Ghost Nothing
-      <| App [one]
-        <| Reference "add"
+    <| App [one]
+      <| Reference "add"
 
 testMachine3 =
   App [two] idMachine
@@ -693,17 +685,16 @@ compactAndMachine =
       <| Case "bool"
 
 
-newstuff =
+fullTypecheckContext =
   defaultCtx.machines
   |> machineSCCs
-  {-
-  |> List.foldl (\ group tcCtx ->
-          -}
+  |> List.foldl (\ machines -> Result.andThen (algWRecursive machines)) (Ok defaultTypecheckContext)
 
 
 view model =
-  compactAndMachine
-    |> algW defaultTypecheckContext emptyVarMap initFreshGen
+  fullTypecheckContext
+    |> Result.andThen
+      (\ ctx -> algW ctx emptyVarMap initFreshGen compactAndMachine)
     |> Result.map (\ (acc, typ) -> typeToString typ)
     |> Debug.toString
     |> Html.text
