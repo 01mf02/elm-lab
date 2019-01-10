@@ -275,13 +275,14 @@ algW ctx vm fg machine =
         |> Result.map (\ typ -> ((emptySubstitution, fg), typ))
 
     Reference r ->
-      Dict.get r ctx.constMap
-        |> Result.fromMaybe UnknownReference
-        |> Result.map
-          (\ scheme ->
-            let (typ, fg_) = refreshType scheme fg
-            in ((emptySubstitution, fg_), typ)
-          )
+      case Dict.get r ctx.constMap of
+        Just typ ->
+          let (typ_, fg_) = refreshType typ fg
+          in Ok ((emptySubstitution, fg_), typ_)
+        Nothing ->
+          Dict.get r ctx.definedMap
+            |> Result.fromMaybe UnknownReference
+            |> Result.map (\ typ -> ((emptySubstitution, fg), typ))
 
     App args m ->
       List.foldl (\ arg -> Result.andThen (algWApp ctx vm arg)) (algW ctx vm fg m) args
