@@ -304,16 +304,47 @@ algW ctx vm fg machine =
     _ -> Debug.todo ""
 
 
-
+normaliseType : Type -> Type
+normaliseType = Debug.todo ""
 
 algWRecursive : TypecheckContext -> List (MachineName, Machine) -> Result TypecheckError TypecheckContext
-algWRecursive ctx machines =
+algWRecursive initCtx machines =
   let
-    (fg, newTypes) = freshTyVarsList initFreshGen (List.map Tuple.first machines)
-    ctx_ = {ctx | definedMap = Dict.fromList newTypes}
-          -- run type checking for all machines (foldl) in group
-          -- substitute invented types and put final types into type checking context
-  in Ok ctx_
+    (initFg, machinesTypes) = freshTyVarsList initFreshGen machines
+    namesTypes = List.map (\ ((name, m), typ) -> (name, typ)) machinesTypes
+    namesMachines = List.map Tuple.first machinesTypes
+    initAcc = Ok ({initCtx | definedMap = Dict.fromList namesTypes}, initFg)
+  in
+    List.foldl
+      (\ (machineName, machine) ->
+        Result.andThen
+          (\ (ctx, fg) ->
+            algW ctx emptyVarMap fg machine
+              |> Result.andThen
+                (\ ((subst, fg_), inferredTyp) ->
+                  Dict.get machineName ctx.definedMap
+                    |> Result.fromMaybe Error
+                    |> Result.andThen
+                      (\ initTyp ->
+                        unifyTypes initTyp inferredTyp subst
+                          |> Result.mapError TypecheckUnifyError
+                          |> Result.map
+                            (\ subst_ ->
+                              let
+                                ctx_ = {ctx | definedMap = Dict.map (\ _ typ -> substituteType subst_ typ) ctx.definedMap}
+                              in (ctx_, fg_)
+                            )
+                      )
+                )
+          )
+      ) initAcc namesMachines
+        |> Result.map
+          (\ (ctx, fg) ->
+            let
+              normalised =
+                Dict.map (\ name typ -> normaliseType typ) ctx.definedMap
+            in {initCtx | constMap = Dict.union normalised ctx.constMap}
+          )
 
 type Arity = Arity Int
 
