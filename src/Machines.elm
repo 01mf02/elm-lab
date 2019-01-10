@@ -7,6 +7,7 @@ import IntDict exposing (IntDict)
 import Html exposing (Html)
 import Test
 import Graph exposing (Graph)
+import List.Extra as ListE
 
 
 type Type
@@ -20,10 +21,11 @@ type alias TypeScheme = (List Int, Type)
 type alias TypeConstructor = (String, List Type)
 type alias TypeName = String
 type alias ConstructorName = String
+type alias MachineName = String
 
 -- for every type, save number of polymorphic type variables and its constructors
 type alias TypeDict = Dict TypeName (Arity, List TypeConstructor)
-type alias ConstructorDict = Dict String Type
+type alias ConstructorDict = Dict ConstructorName Type
 
 boolType =
   ("bool", (Arity 0, [( "true", []),
@@ -57,7 +59,7 @@ typeToString typ =
 
 -- for every machine variable, map to the corresponding type
 type alias VarMap = Array Type
-type alias ConstMap = Dict String TypeScheme
+type alias ConstMap = Dict String Type
 -- for every type variable, map to corresponding type
 type alias Substitution = IntDict Type
 
@@ -69,9 +71,11 @@ emptySubstitution = IntDict.empty
 emptyVarMap = Array.empty
 emptyConstMap = Dict.empty
 
+{-
 instantiateTypeScheme : TypeScheme -> FreshGen -> (Type, FreshGen)
 instantiateTypeScheme (quants, typ) fg =
   Debug.todo ""
+-}
 
 freshTyVar : FreshGen -> (Type, FreshGen)
 freshTyVar (FreshGen i) =
@@ -109,6 +113,16 @@ freshTyVars (FreshGen i) n =
   let i_ = i + n
       tyvars = List.range i (i_ - 1) |> List.map TyVar
   in (tyvars, FreshGen i_)
+
+freshTyVarsList : FreshGen -> List a -> (FreshGen, List (a, Type))
+freshTyVarsList =
+  ListE.mapAccuml
+    (\ fg x ->
+      let (typ, fg_) = freshTyVar fg
+      in (fg_, (x, typ))
+    )
+
+
 
 substituteVarMap : Substitution -> VarMap -> VarMap
 substituteVarMap subst vm =
@@ -205,6 +219,7 @@ mapAccumrResult f acc0 =
 
 type alias TypecheckContext =
   { constMap : ConstMap
+  , definedMap : Dict String Type
   , types : TypeDict
   , constructors : ConstructorDict
   }
@@ -212,13 +227,14 @@ type alias TypecheckContext =
 defaultTypecheckContext : TypecheckContext
 defaultTypecheckContext =
   { constMap = emptyConstMap
+  , definedMap = Dict.empty
   , types = Dict.fromList defaultTypes
   , constructors = Dict.fromList <| List.concatMap typeConstructors defaultTypes
   }
 
 
-algWApp cm vm m2 ((subst1, fg1), typ1) =
-  algW cm (substituteVarMap subst1 vm) fg1 m2
+algWApp ctx vm m2 ((subst1, fg1), typ1) =
+  algW ctx (substituteVarMap subst1 vm) fg1 m2
     |> Result.andThen
       (\ ((subst2, fg2), typ2) ->
         let (beta, fgbeta) = freshTyVar fg2
@@ -234,8 +250,8 @@ algWApp cm vm m2 ((subst1, fg1), typ1) =
               )
       )
 
-algW : ConstMap -> VarMap -> FreshGen -> Machine -> Result TypecheckError ((Substitution, FreshGen), Type)
-algW cm vm fg machine =
+algW : TypecheckContext -> VarMap -> FreshGen -> Machine -> Result TypecheckError ((Substitution, FreshGen), Type)
+algW ctx vm fg machine =
   case machine of
     Const v -> Ok ((emptySubstitution, fg), valueType v)
 
@@ -245,28 +261,27 @@ algW cm vm fg machine =
         |> Result.map (\ typ -> ((emptySubstitution, fg), typ))
 
     Reference r ->
-      Dict.get r cm
+      Dict.get r ctx.constMap
         |> Result.fromMaybe UnknownReference
         |> Result.map
           (\ scheme ->
-            let (typ, fg_) = instantiateTypeScheme scheme fg
+            let (typ, fg_) = refreshType scheme fg
             in ((emptySubstitution, fg_), typ)
           )
 
     App args m ->
-      List.foldl (\ arg -> Result.andThen (algWApp cm vm arg)) (algW cm vm fg m) args
+      List.foldl (\ arg -> Result.andThen (algWApp ctx vm arg)) (algW ctx vm fg m) args
 
     Abs (Arity arity) m ->
       let (betan, fgb) = freshTyVars fg arity
           vm_ = Array.fromList betan
       in
-        algW cm vm_ fgb m
+        algW ctx vm_ fgb m
         |> Result.map (\ ((sub, fgc), typ) -> ((sub, fgc), substituteType sub (List.foldr TyAbs typ betan)))
         --|> Debug.log "Abs"
 
     Case typeName ->
-      -- TODO: make type check context an argument of algW
-      Dict.get typeName defaultTypecheckContext.types
+      Dict.get typeName ctx.types
         |> Result.fromMaybe CaseTypeUnknown
         |> Result.map
           (\ (arity, constructors) ->
@@ -278,7 +293,7 @@ algW cm vm fg machine =
         --|> Debug.log "Case"
 
     Constr constructorName ->
-      Dict.get constructorName defaultTypecheckContext.constructors
+      Dict.get constructorName ctx.constructors
         |> Result.fromMaybe ConstructorUnknown
         |> Result.map
           (\ typ ->
@@ -289,6 +304,16 @@ algW cm vm fg machine =
     _ -> Debug.todo ""
 
 
+
+
+algWRecursive : TypecheckContext -> List (MachineName, Machine) -> Result TypecheckError TypecheckContext
+algWRecursive ctx machines =
+  let
+    (fg, newTypes) = freshTyVarsList initFreshGen (List.map Tuple.first machines)
+    ctx_ = {ctx | definedMap = Dict.fromList newTypes}
+          -- run type checking for all machines (foldl) in group
+          -- substitute invented types and put final types into type checking context
+  in Ok ctx_
 
 type Arity = Arity Int
 
@@ -450,11 +475,10 @@ yCombinator =
          (Ghost Nothing (Var 0))
 
 defaultCtx =
-  { machines = defaultMachines
+  { machines = Dict.fromList defaultMachines
   }
 
 defaultMachines =
-  Dict.fromList
   [ ("not", notMachine)
   , ("and", andMachine)
   , ("id", idMachine)
@@ -617,9 +641,18 @@ compactAndMachine =
     <| App [Var 0, Var 1, false]
       <| Case "bool"
 
+
+newstuff =
+  defaultCtx.machines
+  |> machineSCCs
+  {-
+  |> List.foldl (\ group tcCtx ->
+          -}
+
+
 view model =
   compactAndMachine
-    |> algW emptyConstMap emptyVarMap initFreshGen
+    |> algW defaultTypecheckContext emptyVarMap initFreshGen
     |> Result.map (\ (acc, typ) -> typeToString typ)
     |> Debug.toString
     |> Html.text
