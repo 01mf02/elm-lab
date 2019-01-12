@@ -16,8 +16,6 @@ type Type
   | TyVar Int
 
 -- all-quantified variables, followed by the type
-type alias TypeScheme = (List Int, Type)
-
 type alias TypeConstructor = (String, List Type)
 type alias TypeName = String
 type alias ConstructorName = String
@@ -47,8 +45,8 @@ typeOfNameAndArity name (Arity arity) =
   TyConst name (List.range 0 (arity-1) |> List.map TyVar)
 
 typeConstructors : (TypeName, (Arity, List TypeConstructor)) -> List (String, Type)
-typeConstructors (typeName, (typeArity, constructors)) =
-  List.map (\ (name, args) -> (name, List.foldr TyAbs (typeOfNameAndArity typeName typeArity) args)) constructors
+typeConstructors (typeName, (arity, constructors)) =
+  List.map (\ (name, args) -> (name, List.foldr TyAbs (typeOfNameAndArity typeName arity) args)) constructors
 
 typeToString : Type -> String
 typeToString typ =
@@ -56,6 +54,11 @@ typeToString typ =
     TyAbs t1 t2 -> "(" ++ typeToString t1 ++ " → " ++ typeToString t2 ++ ")"
     TyConst s args -> String.join " " (s :: List.map typeToString args)
     TyVar v -> "t" ++ String.fromInt v
+
+typeArity typ =
+  case typ of
+    TyAbs _ t -> 1 + typeArity t
+    _ -> 0
 
 
 -- for every machine variable, map to the corresponding type
@@ -71,12 +74,6 @@ initFreshGen = FreshGen 0
 emptySubstitution = IntDict.empty
 emptyVarMap = Array.empty
 emptyConstMap = Dict.empty
-
-{-
-instantiateTypeScheme : TypeScheme -> FreshGen -> (Type, FreshGen)
-instantiateTypeScheme (quants, typ) fg =
-  Debug.todo ""
--}
 
 freshTyVar : FreshGen -> (Type, FreshGen)
 freshTyVar (FreshGen i) =
@@ -200,7 +197,7 @@ unifyTypes t1 t2 subst =
 type TypecheckError
   = Error
   | UnboundVariable
-  | UnknownReference
+  | UnknownReference String
   | TypecheckUnifyError UnifyError
   | CaseTypeUnknown
   | ConstructorUnknown
@@ -240,7 +237,7 @@ type alias TypecheckContext =
 
 defaultTypecheckContext : TypecheckContext
 defaultTypecheckContext =
-  { constMap = emptyConstMap
+  { constMap = Dict.map (\ _ (typ, f) -> typ) builtinFunctions
   , definedMap = Dict.empty
   , types = Dict.fromList defaultTypes
   , constructors = Dict.fromList <| List.concatMap typeConstructors defaultTypes
@@ -287,7 +284,7 @@ algW ctx vm fg machine =
           in Ok ((emptySubstitution, fg_), typ_)
         Nothing ->
           Dict.get r ctx.definedMap
-            |> Result.fromMaybe UnknownReference
+            |> Result.fromMaybe (UnknownReference r)
             |> Result.map (\ typ -> ((emptySubstitution, fg), typ))
 
     App args m ->
@@ -390,7 +387,7 @@ valueType v =
     IntValue _ -> TyConst "int" []
 
 intfun2 f =
-  ( Arity 2
+  ( TyAbs intTy (TyAbs intTy intTy)
   , \ args ->
       case args of
         [IntValue x, IntValue y] -> Just (IntValue (f x y))
@@ -528,6 +525,39 @@ yCombinator =
          [App [Var 0] (Reference "Y")]
          (Var 0)
 
+repeatMachine =
+  Abs (Arity 1)
+    <| App [Var 0, App [Var 0] (Reference "repeat")]
+     <| Constr "cons"
+
+takeMachine =
+  Abs (Arity 2)
+    <| App
+      [ App [zero, Var 0] <| Reference "="
+      , Constr "nil"
+      , App
+          [ Var 1
+          , Constr "nil"
+          , App [Var 0]
+              <| Abs (Arity 3)
+                <| App
+                  [ Var 1
+                  , App
+                      [ App
+                          [ Var 0
+                          , one
+                          ]
+                          <| Reference "sub"
+                      , Var 2
+                      ]
+                      <| Reference "take"
+                  ]
+                  <| Constr "cons"
+          ]
+          <| Case "list"
+      ]
+      <| Case "bool"
+
 defaultCtx =
   { machines = Dict.fromList defaultMachines
   }
@@ -537,6 +567,8 @@ defaultMachines =
   , ("and", andMachine)
   , ("id", idMachine)
   , ("Y", yCombinator)
+  , ("repeat", repeatMachine)
+  , ("take", takeMachine)
   ]
 
 
@@ -544,8 +576,8 @@ evalBuiltin : String -> List Value -> Maybe Value
 evalBuiltin name args =
   Dict.get name builtinFunctions
     |> Maybe.andThen
-      (\ (Arity arity, fun) ->
-        if List.length args == arity
+      (\ (typ, fun) ->
+        if List.length args == (typeArity typ)
         then fun args
         else Nothing
       )
@@ -620,6 +652,7 @@ true  = Constr "true"
 false = Constr "false"
 
 boolTy = TyConst "bool" []
+intTy = TyConst "int" []
 
 testMachine1 =
   App
@@ -662,6 +695,8 @@ alwaysTrueMachineY =
 testMachine8 =
   App [alwaysTrueMachineY, Constr "false"] (Reference "Y")
 
+testMachine9 =
+  App [two, App [one] <| Reference "repeat"] (Reference "take")
 
   
 
@@ -704,7 +739,7 @@ fullTypecheckContext =
 view model =
   fullTypecheckContext
     |> Result.andThen
-      (\ ctx -> algW ctx emptyVarMap initFreshGen compactAndMachine)
+      (\ ctx -> algW ctx emptyVarMap initFreshGen testMachine9)
     |> Result.map (\ (acc, typ) -> typeToString typ)
     |> Debug.toString
     |> Html.text
