@@ -8,6 +8,7 @@ import Html exposing (Html)
 import Test
 import Graph exposing (Graph)
 import List.Extra as ListE
+import Result.Extra as ResultE
 
 
 type Type
@@ -467,21 +468,16 @@ getConst machine =
     Const v -> Just v
     _ -> Nothing
 
-stringFromMachine : Machine -> Maybe String
+stringFromMachine : Machine -> String
 stringFromMachine m =
   case m of
-    Const v -> Just (stringFromValue v)
+    Const v -> stringFromValue v
     App args (Constr c) ->
       let
-        stringArgs =
-          List.map (stringFromMachine >> Maybe.withDefault "<unhandled>") args
-      in Just (c ++ "(" ++ String.join ", " stringArgs ++ ")")
-    Constr c -> Just c
-    _ -> Debug.todo "stringFromMachine"
-
-
-allJust : List (Maybe a) -> Maybe (List a)
-allJust = List.foldr (Maybe.map2 (::)) (Just [])
+        stringArgs = List.map stringFromMachine args
+      in c ++ "(" ++ String.join ", " stringArgs ++ ")"
+    Constr c -> c
+    _ -> Debug.log "sfm" m |> Debug.todo "stringFromMachine"
 
 
 substituteMachine : Machine -> Machine -> Machine
@@ -572,40 +568,46 @@ defaultMachines =
   ]
 
 
-evalBuiltin : String -> List Value -> Maybe Value
+evalBuiltin : String -> List Value -> Result EvalError Value
 evalBuiltin name args =
   Dict.get name builtinFunctions
-    |> Maybe.andThen
+    |> Result.fromMaybe EvalBuiltin
+    |> Result.andThen
       (\ (typ, fun) ->
-        if List.length args == (typeArity typ)
-        then fun args
-        else Nothing
+        if List.length args == typeArity typ
+        then fun args |> Result.fromMaybe EvalBuiltin
+        else Err EvalBuiltin
       )
 
 machineOfBool : Bool -> Machine
 machineOfBool b =
   if b then Constr "true" else Constr "false"
 
+type EvalError
+  = EvalError
+  | EvalBuiltin
+  | EvalCase
+
 -- evaluate machine to WHNF
-evalMachine : Context -> Machine -> Maybe Machine
+evalMachine : Context -> Machine -> Result EvalError Machine
 evalMachine ctx machine =
   case machine of
-    Const v -> Just (Const v)
+    Const v -> Ok (Const v)
     App [m1, m2] (Reference "=") ->
       let
         n1 = evaluateNF ctx m1
         n2 = evaluateNF ctx m2
       in
-        Maybe.map2 (\ x y -> machineEquals x y |> machineOfBool) n1 n2
+        Result.map2 (\ x y -> machineEquals x y |> machineOfBool) n1 n2
     App args (Reference n) ->
       case Dict.get n ctx.machines of
         Just m -> evalMachine ctx (App args m)
         Nothing ->
           args
-            |> List.map (evalMachine ctx >> Maybe.andThen getConst)
-            |> allJust
-            |> Maybe.andThen (evalBuiltin n)
-            |> Maybe.map Const
+            |> List.map (evalMachine ctx >> Result.andThen (getConst >> Result.fromMaybe EvalError))
+            |> ResultE.combine
+            |> Result.andThen (evalBuiltin n)
+            |> Result.map Const
     App argsNewer (App argsOlder m) ->
       evalMachine ctx (App (argsOlder ++ argsNewer) m)
     App (arg :: args) (Abs (Arity arity) m) ->
@@ -615,18 +617,38 @@ evalMachine ctx machine =
         substituteMachine arg m |> Abs (Arity (arity - 1)) |> App args |> evalMachine ctx
     App [] m -> evalMachine ctx m
     Abs (Arity 0) m -> evalMachine ctx m
-    App args (Case typeName) ->
-      case args of
-        [bool, trueCase, falseCase] ->
-          evalMachine ctx bool |> Maybe.andThen (\ v -> case v of
-            Constr "true" -> evalMachine ctx trueCase
-            Constr "false" -> evalMachine ctx falseCase
-            _ -> Nothing
-            )
-        _ -> Debug.todo ("case: " ++ Debug.toString args)
-    Case typeName -> Nothing
-    Constr c -> Just (Constr c)
-    App args (Constr c) -> Just (App args (Constr c))
+    App (arg::args) (Case typeName) ->
+      Dict.get typeName defaultTypecheckContext.types
+        |> Result.fromMaybe EvalCase
+        |> Result.andThen
+          (\ (arity, constructors) ->
+            if List.length args < List.length constructors
+            then Err EvalCase
+            else
+              evalMachine ctx arg
+                |> Result.andThen
+                  (\ v -> case v of
+                    Constr c -> Ok ([], c)
+                    App constrArgs (Constr c) -> Ok (constrArgs, c)
+                    _ -> Err EvalCase
+                  )
+                |> Result.andThen
+                  (\ (constrArgs, c) ->
+                    List.indexedMap Tuple.pair constructors
+                      |> ListE.find (\ (index, (constrName, constrArgsTypes)) -> constrName == c)
+                      |> Result.fromMaybe EvalCase
+                      |> Result.andThen
+                        (\ (index, (constrName, constrArgsTypes)) ->
+                          ListE.getAt index args
+                            |> Result.fromMaybe EvalCase
+                            |> Result.andThen
+                              (App constrArgs >> App (List.drop (List.length constructors) args) >> evalMachine ctx)
+                        )
+                  )
+          )
+    Case typeName -> Err EvalCase
+    Constr c -> Ok (Constr c)
+    App args (Constr c) -> Ok (App args (Constr c))
 
     _ -> Debug.todo "evalM"
 
@@ -706,23 +728,22 @@ type alias Msg = ()
 
 init = ()
 
+evaluateNF : Context -> Machine -> Result EvalError Machine
 evaluateNF ctx machine =
   case evalMachine ctx machine of
-    Just (App args (Constr c)) ->
+    Ok (App args (Constr c)) ->
       args
         |> List.map (evaluateNF ctx)
-        |> allJust
-        |> Maybe.map (\ evalArgs -> App evalArgs (Constr c))
+        |> ResultE.combine
+        |> Result.map (\ evalArgs -> App evalArgs (Constr c))
     m -> m
 
-{-
 view model =
-  testMachine8
+  testMachine9
     |> evaluateNF defaultCtx
-    |> Maybe.andThen stringFromMachine
-    |> Maybe.withDefault "<error>"
+    |> Result.map stringFromMachine
+    |> Debug.toString
     |> Html.text
--}
 
 compactAndMachine =
   Abs (Arity 2)
@@ -736,6 +757,7 @@ fullTypecheckContext =
   |> List.foldl (\ machines -> Result.andThen (algWRecursive machines)) (Ok defaultTypecheckContext)
 
 
+{-
 view model =
   fullTypecheckContext
     |> Result.andThen
@@ -743,6 +765,7 @@ view model =
     |> Result.map (\ (acc, typ) -> typeToString typ)
     |> Debug.toString
     |> Html.text
+-}
 
 update msg model = model
 
