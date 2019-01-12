@@ -274,6 +274,12 @@ algW ctx vm fg machine =
         |> Result.fromMaybe UnboundVariable
         |> Result.map (\ typ -> ((emptySubstitution, fg), typ))
 
+    Reference "=" ->
+      let
+        equalityType = TyAbs (TyVar 0) (TyAbs (TyVar 0) boolTy)
+        (typ, fg_) = refreshType equalityType fg
+      in Ok ((emptySubstitution, fg_), typ)
+
     Reference r ->
       case Dict.get r ctx.constMap of
         Just typ ->
@@ -394,6 +400,7 @@ intfun2 f =
 builtinFunctions =
   Dict.fromList
   [ ("add", intfun2 (+))
+  , ("sub", intfun2 (-))
   , ("mul", intfun2 (*))
   ]
 
@@ -547,6 +554,7 @@ machineOfBool : Bool -> Machine
 machineOfBool b =
   if b then Constr "true" else Constr "false"
 
+-- evaluate machine to WHNF
 evalMachine : Context -> Machine -> Maybe Machine
 evalMachine ctx machine =
   case machine of
@@ -610,6 +618,7 @@ one   = Const (IntValue 1)
 two   = Const (IntValue 2)
 true  = Constr "true"
 false = Constr "false"
+
 boolTy = TyConst "bool" []
 
 testMachine1 =
