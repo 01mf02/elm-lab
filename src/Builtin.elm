@@ -5,7 +5,7 @@ import Type exposing (..)
 type Value
   = IntValue Int
 
-intTy = TyConst "int" []
+intTy = Type.Const "int" []
 
 valueEquals : Value -> Value -> Bool
 valueEquals x y =
@@ -18,7 +18,7 @@ stringFromValue v =
 
 valueType v =
   case v of
-    IntValue _ -> TyConst "int" []
+    IntValue _ -> intTy
 
 intfun2 f =
   ( Type.Fun intTy (Type.Fun intTy intTy)

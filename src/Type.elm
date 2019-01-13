@@ -7,7 +7,7 @@ import List.Extra as ListE
 
 type Type
   = Fun Type Type
-  | TyConst String (List Type)
+  | Const String (List Type)
   | Var Int
 
 -- all-quantified variables, followed by the type
@@ -26,21 +26,21 @@ boolType =
                       ("false", [])]))
 listType =
   ("list", (Arity 1, [( "nil", []),
-                      ("cons", [Var 0, TyConst "list" [Var 0]])]))
+                      ("cons", [Var 0, Const "list" [Var 0]])]))
 
 defaultTypes =
   [ boolType
   , listType
   ]
 
-boolTy = TyConst "bool" []
+boolTy = Const "bool" []
 equalityType = Fun (Var 0) (Fun (Var 0) boolTy)
 
 typeOfCase (Arity arity) constructors =
   List.foldr Fun (Var arity) (List.map (\ (name, args) -> List.foldr Fun (Var arity) args) constructors)
 
 typeOfNameAndArity name (Arity arity) =
-  TyConst name (List.range 0 (arity-1) |> List.map Var)
+  Const name (List.range 0 (arity-1) |> List.map Var)
 
 typeConstructors : (TypeName, (Arity, List TypeConstructor)) -> List (String, Type)
 typeConstructors (typeName, (arity, constructors)) =
@@ -50,7 +50,7 @@ toString : Type -> String
 toString typ =
   case typ of
     Fun t1 t2 -> "(" ++ toString t1 ++ " → " ++ toString t2 ++ ")"
-    TyConst s args -> String.join " " (s :: List.map toString args)
+    Const s args -> String.join " " (s :: List.map toString args)
     Var v -> "t" ++ String.fromInt v
 
 normalise : Type -> Type
@@ -99,28 +99,28 @@ maxVariable : Type -> VariableIndex
 maxVariable typ =
   case typ of
     Fun t1 t2 -> max (maxVariable t1) (maxVariable t2)
-    TyConst s args -> List.map maxVariable args |> List.maximum |> Maybe.withDefault (-1)
+    Const s args -> List.map maxVariable args |> List.maximum |> Maybe.withDefault (-1)
     Var v -> v
 
 offsetVariables : Int -> Type -> Type
 offsetVariables off typ =
   case typ of
     Fun t1 t2 -> Fun (offsetVariables off t1) (offsetVariables off t2)
-    TyConst s args -> TyConst s (List.map (offsetVariables off) args)
+    Const s args -> Const s (List.map (offsetVariables off) args)
     Var v -> Var (v + off)
 
 variables : Type -> List VariableIndex
 variables typ =
   case typ of
     Fun t1 t2 -> variables t1 ++ variables t2
-    TyConst s args -> List.concatMap variables args
+    Const s args -> List.concatMap variables args
     Var v -> [v]
 
 containsVariable : VariableIndex -> Type -> Bool
 containsVariable var typ =
   case typ of
     Var v -> v == var
-    TyConst c args -> List.any (containsVariable var) args
+    Const c args -> List.any (containsVariable var) args
     Fun t1 t2 -> containsVariable var t1 || containsVariable var t2
 
 
@@ -129,7 +129,7 @@ mapTyVars : (VariableIndex -> Type) -> Type -> Type
 mapTyVars f typ =
   case typ of
     Fun t1 t2 -> Fun (mapTyVars f t1) (mapTyVars f t2)
-    TyConst s args -> TyConst s (List.map (mapTyVars f) args)
+    Const s args -> Const s (List.map (mapTyVars f) args)
     Var v -> f v
 
 substituteType : Substitution -> Type -> Type
@@ -170,7 +170,7 @@ unify t1 t2 subst =
     (_, Var _) -> unify t2 t1 subst
     (Fun t11 t12, Fun t21 t22) ->
       subst |> unify t11 t21 |> Result.andThen (unify t12 t22)
-    (TyConst c1 args1, TyConst c2 args2) ->
+    (Const c1 args1, Const c2 args2) ->
       if c1 == c2
       then
         if List.length args1 == List.length args2
@@ -183,5 +183,5 @@ unify t1 t2 subst =
           Err ConstrArgsCountsDiffer
       else
         Err ConstructorsDiffer
-    (Fun _ _, TyConst _ _) -> Err UnifyError
-    (TyConst _ _, Fun _ _) -> Err UnifyError
+    (Fun _ _, Const _ _) -> Err UnifyError
+    (Const _ _, Fun _ _) -> Err UnifyError
