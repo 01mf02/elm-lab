@@ -6,6 +6,7 @@ import Type exposing (..)
 import List.Extra as ListE
 import Result.Extra as ResultE
 
+type alias MachineName = String
 
 type Machine
   = Const Value

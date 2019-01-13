@@ -21,7 +21,7 @@ valueType v =
     IntValue _ -> TyConst "int" []
 
 intfun2 f =
-  ( TyAbs intTy (TyAbs intTy intTy)
+  ( Type.Fun intTy (Type.Fun intTy intTy)
   , \ args ->
       case args of
         [IntValue x, IntValue y] -> Just (IntValue (f x y))

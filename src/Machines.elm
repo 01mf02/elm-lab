@@ -9,7 +9,7 @@ import Graph exposing (Graph)
 import Typecheck exposing (..)
 import Machine exposing (..)
 import Builtin exposing (..)
-import Type exposing (..)
+import Type exposing (Type, Arity(..))
 
 
 
@@ -103,7 +103,7 @@ takeMachine =
 
 defaultCtx =
   { machines = Dict.fromList defaultMachines
-  , types = Dict.fromList defaultTypes
+  , types = Dict.fromList Type.defaultTypes
   }
 
 defaultMachines =
@@ -121,8 +121,6 @@ one   = Const (IntValue 1)
 two   = Const (IntValue 2)
 true  = Constr "true"
 false = Constr "false"
-
-intTy = TyConst "int" []
 
 testMachine1 =
   App
@@ -199,8 +197,8 @@ fullTypecheckContext =
 view model =
   fullTypecheckContext
     |> Result.andThen
-      (\ ctx -> algW ctx emptyVarMap initFreshGen testMachine9)
-    |> Result.map (\ (acc, typ) -> typeToString typ)
+      (\ ctx -> algW ctx emptyVarMap Type.initFreshGen testMachine9)
+    |> Result.map (\ (acc, typ) -> Type.toString typ)
     |> Debug.toString
     |> Html.text
 -}

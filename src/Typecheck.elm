@@ -3,15 +3,24 @@ module Typecheck exposing (..)
 import Array exposing (Array)
 import Dict exposing (Dict)
 
-import Type exposing (..)
+import Type exposing (Type, ConstructorDict, TypeDict, FreshGen, Substitution, emptySubstitution, Arity, Arity(..), typeOfNameAndArity, typeOfCase, composeSubstitutions, typeConstructors, defaultTypes)
 import Machine exposing (..)
 import Builtin exposing (..)
+
+
+-- for every machine variable, map to the corresponding type
+type alias VarMap = Array Type
+type alias ConstMap = Dict String Type
+
+emptyVarMap = Array.empty
+emptyConstMap = Dict.empty
+
 
 type TypecheckError
   = Error
   | UnboundVariable
   | UnknownReference String
-  | TypecheckUnifyError UnifyError
+  | TypecheckUnifyError Type.UnifyError
   | CaseTypeUnknown
   | ConstructorUnknown
 
@@ -57,19 +66,24 @@ defaultTypecheckContext =
   }
 
 
+substituteVarMap : Substitution -> VarMap -> VarMap
+substituteVarMap subst vm =
+  Array.map (Type.substituteType subst) vm
+
+
 algWApp ctx vm m2 ((subst1, fg1), typ1) =
   algW ctx (substituteVarMap subst1 vm) fg1 m2
     |> Result.andThen
       (\ ((subst2, fg2), typ2) ->
-        let (beta, fgbeta) = freshTyVar fg2
+        let (beta, fgbeta) = Type.freshVariable fg2
         in
-          unifyTypes (substituteType subst2 typ1) (TyAbs typ2 beta) emptySubstitution
+          Type.unify (Type.substituteType subst2 typ1) (Type.Fun typ2 beta) emptySubstitution
             |> Result.mapError TypecheckUnifyError
             |> Result.map
               (\ v ->
                 let
                   subst = composeSubstitutions v (composeSubstitutions subst2 subst1)
-                  typ = substituteType v beta
+                  typ = Type.substituteType v beta
                 in ((subst, fgbeta), typ)
               )
       )
@@ -86,14 +100,13 @@ algW ctx vm fg machine =
 
     Reference "=" ->
       let
-        equalityType = TyAbs (TyVar 0) (TyAbs (TyVar 0) boolTy)
-        (typ, fg_) = refreshType equalityType fg
+        (typ, fg_) = Type.refresh Type.equalityType fg
       in Ok ((emptySubstitution, fg_), typ)
 
     Reference r ->
       case Dict.get r ctx.constMap of
         Just typ ->
-          let (typ_, fg_) = refreshType typ fg
+          let (typ_, fg_) = Type.refresh typ fg
           in Ok ((emptySubstitution, fg_), typ_)
         Nothing ->
           Dict.get r ctx.definedMap
@@ -104,11 +117,11 @@ algW ctx vm fg machine =
       List.foldl (\ arg -> Result.andThen (algWApp ctx vm arg)) (algW ctx vm fg m) args
 
     Abs (Arity arity) m ->
-      let (betan, fgb) = freshTyVars fg arity
+      let (betan, fgb) = Type.freshVariables fg arity
           vm_ = Array.fromList betan
       in
         algW ctx vm_ fgb m
-        |> Result.map (\ ((sub, fgc), typ) -> ((sub, fgc), substituteType sub (List.foldr TyAbs typ betan)))
+        |> Result.map (\ ((sub, fgc), typ) -> ((sub, fgc), Type.substituteType sub (List.foldr Type.Fun typ betan)))
         --|> Debug.log "Abs"
 
     Case typeName ->
@@ -117,8 +130,8 @@ algW ctx vm fg machine =
         |> Result.map
           (\ (arity, constructors) ->
             let
-              ty = TyAbs (typeOfNameAndArity typeName arity) (typeOfCase arity constructors)
-              (ty_, fg_) = refreshType ty fg
+              ty = Type.Fun (typeOfNameAndArity typeName arity) (typeOfCase arity constructors)
+              (ty_, fg_) = Type.refresh ty fg
             in ((emptySubstitution, fg_), ty_)
           )
         --|> Debug.log "Case"
@@ -128,13 +141,13 @@ algW ctx vm fg machine =
         |> Result.fromMaybe ConstructorUnknown
         |> Result.map
           (\ typ ->
-            let (typ_, fg_) = refreshType typ fg
+            let (typ_, fg_) = Type.refresh typ fg
             in  ((emptySubstitution, fg_), typ_)
           )
 
 
 substituteDefinedMap subst ctx =
-  {ctx | definedMap = Dict.map (\ _ -> substituteType subst) ctx.definedMap}
+  {ctx | definedMap = Dict.map (\ _ -> Type.substituteType subst) ctx.definedMap}
 
 algWRecursiveStep machineName machine (ctx, fg) =
   algW ctx emptyVarMap fg machine
@@ -144,7 +157,7 @@ algWRecursiveStep machineName machine (ctx, fg) =
           |> Result.fromMaybe Error
           |> Result.andThen
             (\ initTyp ->
-              unifyTypes initTyp inferredTyp subst
+              Type.unify initTyp inferredTyp subst
                 |> Result.mapError TypecheckUnifyError
             )
           |> Result.map (\ subst_ -> (substituteDefinedMap subst_ ctx, fg_))
@@ -153,17 +166,17 @@ algWRecursiveStep machineName machine (ctx, fg) =
 algWRecursive : List (MachineName, Machine) -> TypecheckContext -> Result TypecheckError TypecheckContext
 algWRecursive machines initCtx =
   let
-    (initFg, machinesTypes) = freshTyVarsList initFreshGen machines
+    (freshTypes, initFg) = Type.freshVariables Type.initFreshGen (List.length machines)
+    machinesTypes = List.map2 Tuple.pair machines freshTypes
     namesTypes = List.map (\ ((name, m), typ) -> (name, typ)) machinesTypes
-    namesMachines = List.map Tuple.first machinesTypes
     initAcc = Ok ({initCtx | definedMap = Dict.fromList namesTypes}, initFg)
   in
     List.foldl
       (\ (machineName, machine) ->
         Result.andThen (algWRecursiveStep machineName machine)
-      ) initAcc namesMachines
+      ) initAcc machines
       |> Result.map
         (\ (ctx, fg) ->
-          let normalised = Dict.map (\ _ -> normaliseType) ctx.definedMap
+          let normalised = Dict.map (\ _ -> Type.normalise) ctx.definedMap
           in {initCtx | constMap = Dict.union normalised ctx.constMap}
         )
