@@ -1,0 +1,24 @@
+/* for real seamless animation, use something like
+ * http://bl.ocks.org/veltman/fa74a3aff8497e970454bb064cf8dfd1
+ */
+
+/* good introduction to Flexbox/CSS grid:
+ * <https://hackernoon.com/the-ultimate-css-battle-grid-vs-flexbox-d40da0449faf>
+ */
+
+/* for a nice styling of radio buttons:
+ * <https://codepen.io/AngelaVelasquez/pen/BWXbxP>
+ * <https://theblog.adobe.com/css-vs-svg-styling-checkboxes-and-radio-buttons/>
+ */
+
+/* very nice introduction to CSS:
+ * <https://developer.mozilla.org/en-US/docs/Learn/CSS/Introduction_to_CSS>
+ */
+
+#svg .machine-contour {
+  stroke: #5184AF;
+  stroke-width: 10;
+  fill-opacity: 0;
+  rx: 15;
+  ry: 15;
+}
