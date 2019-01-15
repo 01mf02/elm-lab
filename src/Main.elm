@@ -8,6 +8,7 @@ import Svg exposing (Svg)
 import Svg.Attributes as SA
 import Svg.Events as SE
 
+import Maybe.Extra as MaybeE
 
 import Ctm exposing (Ctm)
 
@@ -47,7 +48,7 @@ type alias SVGRect =
   , size : SVGSize
   }
 
-type alias Pipe = GMachine
+type Pipe = Pipe GMachine
 type alias Socket = Maybe Pipe
 
 type alias Arity = Int
@@ -55,15 +56,16 @@ type alias ConstrName = String
 
 type Machine
   = Abs AbsInfo Socket
-  | App (List Socket) GMachine
   | Constr ConstrName
 
 type alias GMachine =
-  Rectangular { machine : Machine }
+  Rectangular
+    { machine : Machine
+    , sockets : List Socket
+    }
 
 type alias AbsInfo =
-  { arity : Arity
-  , floating : List GMachine
+  { floating : List GMachine
   }
 
 
@@ -97,9 +99,17 @@ init _ =
   )
 
 initialMachine =
-  { position = { x = 0, y = 0 }
-  , size = { height = 100, width = 100 }
-  , machine = Abs { arity = 1, floating = []} Nothing
+  { position = { x = 100, y = 100 }
+  , size = { width = 100, height = 100 }
+  , machine =
+      Abs { floating = [] }
+       <| Just <| Pipe
+         { position = { x = 120, y = 120 }
+         , size = { width = 60, height = 60 }
+         , sockets = []
+         , machine = Abs { floating = [] } Nothing
+         }
+  , sockets = []
   }
 
 initialModel =
@@ -157,19 +167,45 @@ centerRectAt {x, y} size =
   , size = size
   }
 
+drawSocket : Socket -> Svg msg
+drawSocket socket =
+  case socket of
+    Nothing -> Svg.g [] []
+    Just (Pipe machine) -> drawGMachine machine
+
+
+type alias Polygon = List (String, String)
+
+machineClipPolygon : Arity -> Polygon
+machineClipPolygon arity =
+  [ (   "0",    "0")
+  , ("100%",    "0")
+  , ("100%", "100%")
+  , ( "55%", "100%")
+  , ( "55%",  "80%")
+  , ( "45%",  "80%")
+  , ( "45%", "100%")
+  , (   "0", "100%")
+  ]
+
+clipPathOfPolygon : Polygon -> String
+clipPathOfPolygon polygon =
+  "polygon(" ++ String.join ", " (List.map (\ (x, y) -> x ++ " " ++ y) polygon) ++ ")"
+
 drawGMachine : GMachine -> Svg msg
 drawGMachine machine =
-  Svg.g [ SA.class "gmachine" ]
-    [ Svg.defs []
-        [ Svg.mask [ SA.id "output-hole" ]
-            [
-              Svg.rect [ SA.width "100%", SA.height "100%", SA.fill "white" ] []
-            ,
-              Svg.rect ( SA.fill "black" :: (centerRectAt (machineOutputCoord machine) {width = 10, height = 10} |> rectAttributes)) []
-            ]
-        ]
-    , Svg.rect (SA.class "machine-contour" :: SA.mask "url(#output-hole)" :: rectAttributes machine) []
-    ]
+  let
+    arity = List.length machine.sockets
+    clipPath = machineClipPolygon arity |> clipPathOfPolygon
+  in
+  case machine.machine of
+    Abs { floating } socket ->
+
+      Svg.g [ SA.class "gmachine" ]
+        ([ drawSocket socket
+        , Svg.rect (SA.class "machine-contour" :: SA.clipPath clipPath :: rectAttributes machine) []
+        ] ++ List.map drawGMachine floating)
+    _ -> Debug.todo "draw"
 
 
 view : Model -> Html Msg

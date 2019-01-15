@@ -15,6 +15,7 @@
             "elm-community/graph": "6.0.0",
             "elm-community/intdict": "3.0.0",
             "elm-community/list-extra": "8.1.0",
+            "elm-community/maybe-extra": "5.0.0",
             "elm-community/result-extra": "2.2.1",
             "elm-explorations/test": "1.2.0"
         },
