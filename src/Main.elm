@@ -2,7 +2,6 @@ port module Main exposing (main)
 
 import Browser
 import Html as H exposing (Html)
-import Json.Encode as JE
 import Json.Decode as JD
 import Svg exposing (Svg)
 import Svg.Attributes as SA
@@ -11,13 +10,7 @@ import Svg.Events as SE
 import Maybe.Extra as MaybeE
 
 import Ctm exposing (Ctm)
-
-
--- PORTS
-
-port requestScreenCtm : JE.Value -> Cmd msg
-
-port receiveScreenCtm : (JE.Value -> msg) -> Sub msg
+import ScreenCtmPort
 
 
 
@@ -85,7 +78,7 @@ type Mode
 type Msg
   = NoOp
   | ModeChanged Mode
-  | ScreenCtmGot JE.Value
+  | ScreenCtmGot (Maybe Ctm)
   | SvgClicked SVGCoord
   | SvgMouseMoved SVGCoord
 
@@ -95,7 +88,7 @@ svgElementId = "svg"
 init : () -> (Model, Cmd Msg)
 init _ =
   ( initialModel
-  , requestScreenCtm (JE.string svgElementId)
+  , ScreenCtmPort.request svgElementId
   )
 
 initialMachine =
@@ -118,20 +111,16 @@ initialModel =
   , screenCtm = Nothing
   }
 
+noCmd model =
+  ( model, Cmd.none )
+
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
   case msg of
-    ScreenCtmGot value ->
-      case JD.decodeValue Ctm.ctmDecoder value of
-        Ok screenCtm ->
-          ( { model | screenCtm = Just screenCtm }
-          , Cmd.none
-          )
-
-        Err _ ->
-          -- probably failed because svg element wasn't created yet,
-          -- so request again
-          (model, requestScreenCtm (JE.string svgElementId))
+    ScreenCtmGot maybeCtm ->
+      case maybeCtm of
+        Just ctm -> noCmd { model | screenCtm = Just ctm }
+        Nothing -> ( model, ScreenCtmPort.request svgElementId )
 
     _ -> (model, Cmd.none)
 
@@ -232,6 +221,6 @@ view model =
 
 subscriptions model =
   Sub.batch
-    [ receiveScreenCtm ScreenCtmGot
+    [ ScreenCtmPort.receive ScreenCtmGot
     ]
 
