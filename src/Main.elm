@@ -1,8 +1,10 @@
 port module Main exposing (main)
 
 import Browser
+import Dict exposing (Dict)
 import Html as H exposing (Html)
 import Json.Decode as JD
+import Set exposing (Set)
 import Svg exposing (Svg)
 import Svg.Attributes as SA
 import Svg.Events as SE
@@ -60,6 +62,82 @@ type alias GMachine =
 type alias AbsInfo =
   { floating : List GMachine
   }
+
+type alias EntityId = Int
+
+type ConnectionEndpoint
+  = Output EntityId
+  | Input EntityId Int
+
+type alias Connection =
+  { from : ConnectionEndpoint
+  , to : ConnectionEndpoint
+  }
+
+type MachineType
+  = TConstr ConstrName
+  | TAbs
+  | TReference String
+
+type alias EMachine =
+  { children : Set EntityId
+  , inputs : List (Maybe EntityId)
+  , machineType : MachineType
+  }
+
+addMachine : EMachine -> Transform -> Components -> (Components, EntityId)
+addMachine machine transform components =
+  ( { components
+      | nextId = components.nextId + 1
+      , machines = Dict.insert components.nextId machine components.machines
+      , transforms = Dict.insert components.nextId transform components.transforms
+    }
+  , components.nextId
+  )
+
+addConnection connection components =
+  ( { components
+      | nextId = components.nextId + 1
+      , connections = Dict.insert components.nextId connection components.connections
+    }
+  , components.nextId
+  )
+
+type alias Transform = SVGRect
+
+
+type alias Components =
+  { nextId : EntityId
+  , names : Dict EntityId String
+  , machines : Dict EntityId EMachine
+  , connections : Dict EntityId Connection
+  , transforms : Dict EntityId Transform
+  }
+
+initialComponents : Components
+initialComponents =
+  { nextId = 0
+  , names = Dict.empty
+  , machines = Dict.empty
+  , connections = Dict.empty
+  , transforms = Dict.empty
+  }
+
+testComponents : Components
+testComponents =
+  initialComponents
+    |> addMachine
+         { children = Set.empty, inputs = [], machineType = TAbs }
+         { position = { x = 120, y = 120 }
+         , size = { width = 60, height = 60 }
+         }
+    |> Tuple.first
+    |> addMachine
+         { children = Set.empty, inputs = [], machineType = TAbs }
+         { position = { x = 100, y = 100 }
+         , size = { width = 100, height = 100 }
+         }
+    |> Tuple.first
 
 
 type alias Model =
