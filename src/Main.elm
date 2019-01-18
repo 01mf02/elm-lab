@@ -193,6 +193,16 @@ nameEntity id name components =
     | names = Dict.insert id name components.names
   }
 
+-- remove children?
+deleteEntity : EntityId -> Components -> Components
+deleteEntity id components =
+  { nextId = components.nextId
+  , names = Dict.remove id components.names
+  , machines = Dict.remove id components.machines
+  , connections = Dict.remove id components.connections
+  , transforms = Dict.remove id components.transforms
+  }
+
 testComponents : Components
 testComponents =
   initialComponents
@@ -225,7 +235,10 @@ type Mode
   | MachineMode
   | InputMode
   | DeleteMode
-  | TransformMode
+  | TransformMode { lastClick : Maybe (EntityId, Ctm.ClientCoord) }
+
+initialTransformMode =
+  TransformMode { lastClick = Nothing }
 
 type Msg
   = NoOp
@@ -260,7 +273,7 @@ initialMachine =
   }
 
 initialModel =
-  { mode = TransformMode
+  { mode = DeleteMode
   , machine = initialMachine
   , components = testComponents
   , screenCtm = Ctm.unit
@@ -273,6 +286,9 @@ noCmd model =
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
   case msg of
+    ModeChanged mode ->
+      noCmd { model | mode = mode }
+
     ScreenCtmGot maybeCtm ->
       case maybeCtm of
         Just ctm -> noCmd { model | screenCtm = ctm }
@@ -286,7 +302,10 @@ update msg model =
       let
         svgCoord = svgOfClientCoord model clientCoord
         _ = Debug.log "msg" (msg, svgCoord)
-      in noCmd model
+      in
+      case model.mode of
+        DeleteMode -> noCmd { model | components = deleteEntity id model.components }
+        _ -> noCmd model
 
     _ -> (model, Cmd.none)
 
@@ -386,9 +405,24 @@ view model =
         ]
     ]
 
+rawKeyDecoder : JD.Decoder String
+rawKeyDecoder =
+  JD.field "key" JD.string
+
+keyHandler : String -> Msg
+keyHandler s =
+  case s of
+    "c" -> ModeChanged ConnectMode
+    "m" -> ModeChanged MachineMode
+    "i" -> ModeChanged InputMode
+    "d" -> ModeChanged DeleteMode
+    "t" -> ModeChanged initialTransformMode
+    _ -> NoOp
+
 subscriptions model =
   Sub.batch
     [ ScreenCtmPort.receive ScreenCtmGot
+    , Browser.Events.onKeyDown (JD.map keyHandler rawKeyDecoder)
     , Browser.Events.onAnimationFrameDelta OnAnimationFrameDelta
     ]
 
