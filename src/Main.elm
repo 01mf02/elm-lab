@@ -9,7 +9,8 @@ import Svg exposing (Svg)
 import Svg.Attributes as SA
 import Svg.Events as SE
 
-import Maybe.Extra as MaybeE
+import Dict.Extra as DictE
+--import Maybe.Extra as MaybeE
 
 import Ctm exposing (Ctm)
 import ScreenCtmPort
@@ -114,6 +115,58 @@ type alias Components =
   , transforms : Dict EntityId Transform
   }
 
+foldl : (EntityId -> a -> b -> b) -> b -> Dict EntityId a -> b
+foldl =
+    Dict.foldl
+
+stringFromSVGCoord { x, y } =
+  "(" ++ String.fromFloat x ++ "," ++ String.fromFloat y ++ ")"
+
+drawMachineContour transform =
+  Svg.rect (SA.class "machine-contour" :: rectAttributes { transform | position = { x = 0, y = 0 } }) [ ]
+
+drawEMachine : Components -> EntityId -> EMachine -> Transform -> Svg msg
+drawEMachine components id machine transform =
+  drawEMachines components
+    [ drawMachineContour transform ]  (DictE.keepOnly machine.children components.machines) components.transforms
+    |> Svg.g [ SA.transform ("translate" ++ stringFromSVGCoord transform.position) ]
+
+drawEMachines : Components -> List (Svg msg) -> Dict EntityId EMachine -> Dict EntityId Transform -> List (Svg msg)
+drawEMachines components =
+  foldl2
+    (\childId childMachine childTransform ->
+      (::) (drawEMachine components childId childMachine childTransform)
+    )
+
+{-| Perform inner join on two component dicts
+and aggregate the result. The order matters:
+we get elements from the 1st component dict and
+then inner join with the second component dict
+-}
+foldl2 : (EntityId -> a -> b -> c -> c) -> c -> Dict EntityId a -> Dict EntityId b -> c
+foldl2 fn initial_ component1 component2 =
+    Dict.foldl
+        (\uid a ->
+            Maybe.map (fn uid a)
+                (Dict.get uid component2)
+                |> Maybe.withDefault identity
+        )
+        initial_
+        component1
+
+
+foldl3 : (EntityId -> a -> b -> c -> d -> d) -> d -> Dict EntityId a -> Dict EntityId b -> Dict EntityId c -> d
+foldl3 fn initial_ component1 component2 component3 =
+    Dict.foldl
+        (\uid a ->
+            Maybe.map2 (fn uid a)
+                (Dict.get uid component2)
+                (Dict.get uid component3)
+                |> Maybe.withDefault identity
+        )
+        initial_
+        component1
+
 initialComponents : Components
 initialComponents =
   { nextId = 0
@@ -123,26 +176,35 @@ initialComponents =
   , transforms = Dict.empty
   }
 
+nameEntity : EntityId -> String -> Components -> Components
+nameEntity id name components =
+  { components
+    | names = Dict.insert id name components.names
+  }
+
 testComponents : Components
 testComponents =
   initialComponents
     |> addMachine
          { children = Set.empty, inputs = [], machineType = TAbs }
-         { position = { x = 120, y = 120 }
+         { position = { x = 20, y = 20 }
          , size = { width = 60, height = 60 }
          }
-    |> Tuple.first
-    |> addMachine
-         { children = Set.empty, inputs = [], machineType = TAbs }
+    |> (\( components, childId ) ->
+       addMachine
+         { children = Set.singleton childId, inputs = [], machineType = TAbs }
          { position = { x = 100, y = 100 }
          , size = { width = 100, height = 100 }
          }
-    |> Tuple.first
+         components
+       )
+    |> (\( components, parentId ) -> nameEntity parentId "test" components)
 
 
 type alias Model =
   { mode : Mode
   , machine : GMachine
+  , components : Components
   , screenCtm : Maybe Ctm
   }
 
@@ -186,6 +248,7 @@ initialMachine =
 initialModel =
   { mode = TransformMode
   , machine = initialMachine
+  , components = testComponents
   , screenCtm = Nothing
   }
 
@@ -212,7 +275,14 @@ svgCoordDecoder { screenCtm } =
 
 drawSvg : Model -> List (Svg msg)
 drawSvg model =
-  [drawGMachine model.machine]
+  let components = model.components
+  in
+ -- [drawGMachine model.machine]
+  --++
+  foldl3
+    (\id machine transform name ->
+      (::) (drawEMachine components id machine transform)
+    ) [] components.machines components.transforms components.names
 
 rectAttributes : Rectangular a -> List (Svg.Attribute msg)
 rectAttributes { position, size } =
@@ -273,7 +343,6 @@ drawGMachine machine =
         , Svg.rect (SA.class "machine-contour" :: SA.clipPath clipPath :: rectAttributes machine) []
         ] ++ List.map drawGMachine floating)
     _ -> Debug.todo "draw"
-
 
 view : Model -> Html Msg
 view model =
