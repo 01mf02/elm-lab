@@ -1,6 +1,7 @@
 port module Main exposing (main)
 
 import Browser
+import Browser.Events
 import Dict exposing (Dict)
 import Html as H exposing (Html)
 import Json.Decode as JD
@@ -13,6 +14,7 @@ import Dict.Extra as DictE
 --import Maybe.Extra as MaybeE
 
 import Ctm exposing (Ctm)
+import CssPropPort
 import ScreenCtmPort
 
 
@@ -206,6 +208,7 @@ type alias Model =
   , machine : GMachine
   , components : Components
   , screenCtm : Maybe Ctm
+  , msElapsed : Float
   }
 
 type Mode
@@ -221,6 +224,7 @@ type Msg
   | ScreenCtmGot (Maybe Ctm)
   | SvgClicked SVGCoord
   | SvgMouseMoved SVGCoord
+  | OnAnimationFrameDelta Float
 
 
 svgElementId = "svg"
@@ -250,6 +254,7 @@ initialModel =
   , machine = initialMachine
   , components = testComponents
   , screenCtm = Nothing
+  , msElapsed = 0
   }
 
 noCmd model =
@@ -262,6 +267,10 @@ update msg model =
       case maybeCtm of
         Just ctm -> noCmd { model | screenCtm = Just ctm }
         Nothing -> ( model, ScreenCtmPort.request svgElementId )
+
+    OnAnimationFrameDelta d ->
+      ( { model | msElapsed = model.msElapsed + d },
+        CssPropPort.set ":root" "--ms-elapsed" (String.fromFloat model.msElapsed) )
 
     _ -> (model, Cmd.none)
 
@@ -369,5 +378,6 @@ view model =
 subscriptions model =
   Sub.batch
     [ ScreenCtmPort.receive ScreenCtmGot
+    , Browser.Events.onAnimationFrameDelta OnAnimationFrameDelta
     ]
 

@@ -22,3 +22,9 @@
   rx: 15;
   ry: 15;
 }
+
+#svg .machine-contour:hover {
+  stroke: red;
+  stroke-dasharray: 10;
+  stroke-dashoffset: calc(var(--ms-elapsed)/100);
+}
