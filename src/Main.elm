@@ -130,7 +130,10 @@ drawMachineContour transform =
 drawEMachine : Components -> EntityId -> EMachine -> Transform -> Svg msg
 drawEMachine components id machine transform =
   drawEMachines components
-    [ drawMachineContour transform ]  (DictE.keepOnly machine.children components.machines) components.transforms
+    [  ]
+    (DictE.keepOnly machine.children components.machines)
+    components.transforms
+    |> (::) (drawMachineContour transform)
     |> Svg.g [ SA.transform ("translate" ++ stringFromSVGCoord transform.position) ]
 
 drawEMachines : Components -> List (Svg msg) -> Dict EntityId EMachine -> Dict EntityId Transform -> List (Svg msg)
