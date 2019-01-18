@@ -124,24 +124,30 @@ foldl =
 stringFromSVGCoord { x, y } =
   "(" ++ String.fromFloat x ++ "," ++ String.fromFloat y ++ ")"
 
-drawMachineContour transform =
-  Svg.rect (SA.class "machine-contour" :: rectAttributes { transform | position = { x = 0, y = 0 } }) [ ]
+drawMachineContour id transform =
+  let
+    attributes =
+      [ SA.class "machine-contour"
+      , SE.on "click" <| JD.map (ObjectClicked id) <| Ctm.clientCoordDecoder
+      ]
+      ++ rectAttributes { transform | position = { x = 0, y = 0 } }
+  in
+  Svg.rect attributes [ ]
 
-drawEMachine : Components -> EntityId -> EMachine -> Transform -> Svg msg
+drawEMachine : Components -> EntityId -> EMachine -> Transform -> Svg Msg
 drawEMachine components id machine transform =
   drawEMachines components
-    [  ]
     (DictE.keepOnly machine.children components.machines)
     components.transforms
-    |> (::) (drawMachineContour transform)
+    |> (::) (drawMachineContour id transform)
     |> Svg.g [ SA.transform ("translate" ++ stringFromSVGCoord transform.position) ]
 
-drawEMachines : Components -> List (Svg msg) -> Dict EntityId EMachine -> Dict EntityId Transform -> List (Svg msg)
+drawEMachines : Components -> Dict EntityId EMachine -> Dict EntityId Transform -> List (Svg Msg)
 drawEMachines components =
   foldl2
     (\childId childMachine childTransform ->
       (::) (drawEMachine components childId childMachine childTransform)
-    )
+    ) [ ]
 
 {-| Perform inner join on two component dicts
 and aggregate the result. The order matters:
@@ -210,7 +216,7 @@ type alias Model =
   { mode : Mode
   , machine : GMachine
   , components : Components
-  , screenCtm : Maybe Ctm
+  , screenCtm : Ctm
   , msElapsed : Float
   }
 
@@ -225,8 +231,9 @@ type Msg
   = NoOp
   | ModeChanged Mode
   | ScreenCtmGot (Maybe Ctm)
-  | SvgClicked SVGCoord
-  | SvgMouseMoved SVGCoord
+  | SvgClicked Ctm.ClientCoord
+  | SvgMouseMoved Ctm.ClientCoord
+  | ObjectClicked EntityId Ctm.ClientCoord
   | OnAnimationFrameDelta Float
 
 
@@ -256,7 +263,7 @@ initialModel =
   { mode = TransformMode
   , machine = initialMachine
   , components = testComponents
-  , screenCtm = Nothing
+  , screenCtm = Ctm.unit
   , msElapsed = 0
   }
 
@@ -268,24 +275,25 @@ update msg model =
   case msg of
     ScreenCtmGot maybeCtm ->
       case maybeCtm of
-        Just ctm -> noCmd { model | screenCtm = Just ctm }
+        Just ctm -> noCmd { model | screenCtm = ctm }
         Nothing -> ( model, ScreenCtmPort.request svgElementId )
 
     OnAnimationFrameDelta d ->
       ( { model | msElapsed = model.msElapsed + d },
         CssPropPort.set ":root" "--ms-elapsed" (String.fromFloat model.msElapsed) )
 
+    ObjectClicked id clientCoord ->
+      let
+        svgCoord = svgOfClientCoord model clientCoord
+        _ = Debug.log "msg" (msg, svgCoord)
+      in noCmd model
+
     _ -> (model, Cmd.none)
 
-svgCoordDecoder : Model -> JD.Decoder SVGCoord
-svgCoordDecoder { screenCtm } =
-  case screenCtm of
-    Nothing -> JD.fail "No CTM"
-    Just ctm ->
-      Ctm.clientCoordDecoder
-        |> JD.map (Ctm.svgOfClientCoord >> Ctm.matrixTransform ctm)
+svgOfClientCoord { screenCtm } =
+  Ctm.svgOfClientCoord >> Ctm.matrixTransform screenCtm
 
-drawSvg : Model -> List (Svg msg)
+drawSvg : Model -> List (Svg Msg)
 drawSvg model =
   let components = model.components
   in
@@ -367,8 +375,8 @@ view model =
             [ SA.width "800px"
             , SA.height "600px"
             , SA.viewBox "0 0 800 600"
-            , SE.on "click" <| JD.map SvgClicked <| svgCoordDecoder model
-            , SE.on "mousemove" <| JD.map SvgMouseMoved <| svgCoordDecoder model
+            , SE.on "click" <| JD.map SvgClicked <| Ctm.clientCoordDecoder
+            , SE.on "mousemove" <| JD.map SvgMouseMoved <| Ctm.clientCoordDecoder
             , SA.id svgElementId
             ]
             (drawSvg model)

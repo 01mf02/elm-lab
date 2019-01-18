@@ -45,6 +45,11 @@ ctmDecoder =
     (JD.field "e" JD.float)
     (JD.field "f" JD.float)
 
+unit : Ctm
+unit =
+  { a = 1, b = 0, c = 0
+  , d = 1, e = 0, f = 0
+  }
 
 {-| See <https://developer.mozilla.org/en-US/docs/Web/SVG/Attribute/transform>
 -}
