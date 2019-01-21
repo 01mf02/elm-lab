@@ -59,3 +59,18 @@ matrixTransform c p =
   , y = c.b * p.x + c.d * p.y + c.f
   }
 
+translationMatrix : SVGCoord -> Ctm
+translationMatrix { x, y } =
+  { a = 1, b = 0, c = 0
+  , d = 1, e = x, f = y
+  }
+
+-- See https://www.alanzucconi.com/2016/02/10/tranfsormation-matrix/
+multiply m1 m2 =
+  { a = m1.a * m2.a + m1.b * m2.d
+  , b = m1.a * m2.b + m1.b * m2.e
+  , c = m1.a * m2.c + m1.b * m2.f + m1.c
+  , d = m1.d * m2.a + m1.e * m2.d
+  , e = m1.d * m2.b + m1.e * m2.e
+  , f = m1.d * m2.c + m1.e * m2.f + m1.f
+  }

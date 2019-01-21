@@ -83,7 +83,8 @@ type MachineType
   | TReference String
 
 type alias EMachine =
-  { children : Set EntityId
+  { parent : Maybe EntityId
+  , children : Set EntityId
   , inputs : List (Maybe EntityId)
   , machineType : MachineType
   }
@@ -178,6 +179,16 @@ foldl3 fn initial_ component1 component2 component3 =
         initial_
         component1
 
+map2 : (a -> b -> c) -> EntityId -> Dict EntityId a -> Dict EntityId b -> Maybe c
+map2 fn id component1 component2 =
+  Dict.get id component1
+    |> Maybe.andThen
+      (\a ->
+        Dict.get id component2
+          |> Maybe.map (\b -> fn a b)
+      )
+
+
 initialComponents : Components
 initialComponents =
   { nextId = 0
@@ -193,6 +204,17 @@ nameEntity id name components =
     | names = Dict.insert id name components.names
   }
 
+setParentChild : EntityId -> EntityId -> Components -> Components
+setParentChild parentId childId components =
+  let
+    addChild parent = { parent | children = Set.insert childId parent.children }
+    setParent child = { child | parent = Just parentId }
+    updateMachines =
+      Dict.update parentId (Maybe.map addChild)
+        >> Dict.update childId (Maybe.map setParent)
+  in
+  { components | machines = updateMachines components.machines }
+
 -- remove children?
 deleteEntity : EntityId -> Components -> Components
 deleteEntity id components =
@@ -203,23 +225,40 @@ deleteEntity id components =
   , transforms = Dict.remove id components.transforms
   }
 
+
+transformCtm transform =
+  Ctm.translationMatrix transform.position
+
+{-
+getCtm : Components -> EntityId -> Ctm
+getCtm components id =
+  case Dict.get id components.machines of
+    Nothing -> Ctm.unit
+    Just machine ->
+
+    |> Maybe.
+
+
+-}
+
+
 testComponents : Components
 testComponents =
   initialComponents
     |> addMachine
-         { children = Set.empty, inputs = [], machineType = TAbs }
+         { parent = Nothing, children = Set.empty, inputs = [], machineType = TAbs }
          { position = { x = 20, y = 20 }
          , size = { width = 60, height = 60 }
          }
     |> (\( components, childId ) ->
        addMachine
-         { children = Set.singleton childId, inputs = [], machineType = TAbs }
+         { parent = Nothing, children = Set.empty, inputs = [], machineType = TAbs }
          { position = { x = 100, y = 100 }
          , size = { width = 100, height = 100 }
          }
          components
+         |> (\( components_, parentId ) -> nameEntity parentId "test" components_ |> setParentChild parentId childId)
        )
-    |> (\( components, parentId ) -> nameEntity parentId "test" components)
 
 
 type alias Model =
@@ -296,7 +335,8 @@ update msg model =
 
     OnAnimationFrameDelta d ->
       ( { model | msElapsed = model.msElapsed + d },
-        CssPropPort.set ":root" "--ms-elapsed" (String.fromFloat model.msElapsed) )
+        CssPropPort.set ":root" "--ms-elapsed" (String.fromFloat model.msElapsed)
+      )
 
     ObjectClicked id clientCoord ->
       let
