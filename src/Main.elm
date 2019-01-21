@@ -229,18 +229,54 @@ deleteEntity id components =
 transformCtm transform =
   Ctm.translationMatrix transform.position
 
+getCtm : EntityId -> Components -> Ctm
+getCtm id components =
+  map2
+    (\machine transform ->
+      case machine.parent of
+        Just parentId -> Ctm.multiply (getCtm parentId components) (Ctm.translationMatrix transform.position)
+        Nothing -> Ctm.unit
+    )
+    id components.machines components.transforms
+    |> Maybe.withDefault Ctm.unit
+
+coordInRect : SVGRect -> SVGCoord -> Bool
+coordInRect rect coord =
+  coord.x > rect.position.x &&
+  coord.x < rect.position.x + rect.size.width &&
+  coord.y > rect.position.y &&
+  coord.y < rect.position.y + rect.size.height
+
+addCoords : SVGCoord -> SVGCoord -> SVGCoord
+addCoords c1 c2 =
+  { x = c1.x + c2.x
+  , y = c1.y + c2.y
+  }
+
+transformCoord : SVGRect -> SVGCoord -> SVGCoord
+transformCoord rect =
+  addCoords rect.position
+
+localOfGlobalCoord : Components -> EntityId -> SVGCoord -> SVGCoord
+localOfGlobalCoord components id coord =
+  Debug.todo ""
+
 {-
-getCtm : Components -> EntityId -> Ctm
-getCtm components id =
-  case Dict.get id components.machines of
-    Nothing -> Ctm.unit
-    Just machine ->
-
-    |> Maybe.
-
-
+findSmallestMachineContaining : SVGCoord -> Set EntityId -> Components -> Maybe EntityId
+findSmallestMachineContaining coord among components =
+  foldl2
+    (\id machine transform maybeAcc ->
+      case maybeAcc of
+        Just _ -> maybeAcc
+        Nothing ->
+          if coordInRect transform coord
+          then
+           findSmallestMachineContaining (transformCoord transform coord) machine.children components
+             |> Maybe.withDefault id |> Just
+          else Nothing
+    )
+    Nothing (DictE.keepOnly among components.machines) components.transforms
 -}
-
 
 testComponents : Components
 testComponents =
@@ -271,13 +307,16 @@ type alias Model =
 
 type Mode
   = ConnectMode
-  | MachineMode
+  | MachineMode { lastClick : Maybe (EntityId, SVGCoord) }
   | InputMode
   | DeleteMode
   | TransformMode { lastClick : Maybe (EntityId, Ctm.ClientCoord) }
 
 initialTransformMode =
   TransformMode { lastClick = Nothing }
+
+initialMachineMode =
+  MachineMode { lastClick = Nothing }
 
 type Msg
   = NoOp
@@ -345,6 +384,13 @@ update msg model =
       in
       case model.mode of
         DeleteMode -> noCmd { model | components = deleteEntity id model.components }
+
+        MachineMode { lastClick } ->
+          case lastClick of
+            Nothing ->
+              noCmd { model | mode = MachineMode { lastClick = Just (id, localOfGlobalCoord model.components id svgCoord) |> Debug.log "lastClick" } }
+            _ -> noCmd model
+
         _ -> noCmd model
 
     _ -> (model, Cmd.none)
@@ -453,7 +499,7 @@ keyHandler : String -> Msg
 keyHandler s =
   case s of
     "c" -> ModeChanged ConnectMode
-    "m" -> ModeChanged MachineMode
+    "m" -> ModeChanged initialMachineMode
     "i" -> ModeChanged InputMode
     "d" -> ModeChanged DeleteMode
     "t" -> ModeChanged initialTransformMode
