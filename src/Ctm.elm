@@ -35,6 +35,12 @@ clientCoordDecoder =
     (JD.at [ "clientX" ] JD.int)
     (JD.at [ "clientY" ] JD.int)
 
+pageCoordDecoder : Decoder ClientCoord
+pageCoordDecoder =
+  JD.map2 ClientCoord
+    (JD.at [ "pageX" ] JD.int)
+    (JD.at [ "pageY" ] JD.int)
+
 ctmDecoder : Decoder Ctm
 ctmDecoder =
   JD.map6 (\ a b c d e f -> { a = a, b = b, c = c, d = d, e = e, f = f })

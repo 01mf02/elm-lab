@@ -129,7 +129,7 @@ drawMachineContour id transform =
   let
     attributes =
       [ SA.class "machine-contour"
-      , SE.on "click" <| JD.map (ObjectClicked id) <| Ctm.clientCoordDecoder
+      , SE.on "click" <| JD.map (ObjectClicked id) <| Ctm.pageCoordDecoder
       ]
       ++ rectAttributes { transform | position = { x = 0, y = 0 } }
   in
@@ -247,19 +247,73 @@ coordInRect rect coord =
   coord.y > rect.position.y &&
   coord.y < rect.position.y + rect.size.height
 
-addCoords : SVGCoord -> SVGCoord -> SVGCoord
-addCoords c1 c2 =
-  { x = c1.x + c2.x
-  , y = c1.y + c2.y
+combineCoords : (Float -> Float -> Float) -> SVGCoord -> SVGCoord -> SVGCoord
+combineCoords fn c1 c2 =
+  { x = fn c1.x c2.x
+  , y = fn c1.y c2.y
   }
+
+addCoords = combineCoords (+)
+subtractCoords = combineCoords (-)
+
+rectOfCoords : SVGCoord -> SVGCoord -> SVGRect
+rectOfCoords c1 c2 =
+  let
+    minMax x y =
+      if x < y then (x, y) else (y, x)
+    (xmin, xmax) = minMax c1.x c2.x
+    (ymin, ymax) = minMax c1.y c2.y
+  in
+  { position = { x = xmin, y = ymin }
+  , size = { width = xmax - xmin, height = ymax - ymin }
+  }
+
 
 transformCoord : SVGRect -> SVGCoord -> SVGCoord
 transformCoord rect =
   addCoords rect.position
 
+transformInverse rect coord =
+  subtractCoords coord rect.position
+
+combineTransforms : Transform -> Transform -> Transform
+combineTransforms t1 t2 =
+  { position = addCoords t1.position t2.position
+  , size = t1.size
+  }
+
+unitTransform : Transform
+unitTransform =
+  { position = { x = 0, y = 0 }
+  , size = { width = 1, height = 1 }
+  }
+
+-- transformation is by default from local to global (local -> global)
+
+
+-- transformations of more top-level machines come first
+transformTrail : Components -> EntityId -> List Transform
+transformTrail components =
+  let
+    aux acc id =
+      map2
+        (\machine transform ->
+          case machine.parent of
+            Nothing -> transform :: acc
+            Just parent -> aux (transform :: acc) parent
+        )
+        id components.machines components.transforms
+        |> Maybe.withDefault []
+  in
+  aux []
+
 localOfGlobalCoord : Components -> EntityId -> SVGCoord -> SVGCoord
 localOfGlobalCoord components id coord =
-  Debug.todo ""
+  List.foldl transformInverse coord (transformTrail components id)
+
+globalOfLocalCoord : Components -> EntityId -> SVGCoord -> SVGCoord
+globalOfLocalCoord components id coord =
+  List.foldr transformCoord coord (transformTrail components id)
 
 {-
 findSmallestMachineContaining : SVGCoord -> Set EntityId -> Components -> Maybe EntityId
@@ -290,7 +344,7 @@ testComponents =
        addMachine
          { parent = Nothing, children = Set.empty, inputs = [], machineType = TAbs }
          { position = { x = 100, y = 100 }
-         , size = { width = 100, height = 100 }
+         , size = { width = 300, height = 300 }
          }
          components
          |> (\( components_, parentId ) -> nameEntity parentId "test" components_ |> setParentChild parentId childId)
@@ -389,7 +443,18 @@ update msg model =
           case lastClick of
             Nothing ->
               noCmd { model | mode = MachineMode { lastClick = Just (id, localOfGlobalCoord model.components id svgCoord) |> Debug.log "lastClick" } }
-            _ -> noCmd model
+            Just (prevClickedId, prevLocalCoord) ->
+              if prevClickedId == id
+              then
+                let
+                  localCoord = localOfGlobalCoord model.components id svgCoord
+                  machine = { parent = Nothing, children = Set.empty, inputs = [], machineType = TAbs }
+                  transform = rectOfCoords prevLocalCoord localCoord
+                  components = addMachine machine transform model.components |> (\(components_, childId) -> setParentChild id childId components_)
+                in
+                noCmd { model | components = components, mode = initialMachineMode }
+              else
+                noCmd { model | mode = initialMachineMode }
 
         _ -> noCmd model
 
@@ -480,8 +545,8 @@ view model =
             [ SA.width "800px"
             , SA.height "600px"
             , SA.viewBox "0 0 800 600"
-            , SE.on "click" <| JD.map SvgClicked <| Ctm.clientCoordDecoder
-            , SE.on "mousemove" <| JD.map SvgMouseMoved <| Ctm.clientCoordDecoder
+            , SE.on "click" <| JD.map SvgClicked <| Ctm.pageCoordDecoder
+            , SE.on "mousemove" <| JD.map SvgMouseMoved <| Ctm.pageCoordDecoder
             , SA.id svgElementId
             ]
             (drawSvg model)
