@@ -225,6 +225,16 @@ deleteEntity id components =
   , transforms = Dict.remove id components.transforms
   }
 
+offsetTransform : EntityId -> SVGCoord -> Components -> Components
+offsetTransform id coord components =
+  let
+    offset transform =
+      { transform | position = addCoords coord transform.position }
+  in
+  { components
+    | transforms = Dict.update id (Maybe.map offset) components.transforms
+  }
+
 
 transformCtm transform =
   Ctm.translationMatrix transform.position
@@ -359,15 +369,21 @@ type alias Model =
   , msElapsed : Float
   }
 
+type alias Move =
+  { clickedId : EntityId
+  , clickedCoord : SVGCoord
+  , currentCoord : SVGCoord
+  }
+
 type Mode
   = ConnectMode
   | MachineMode { lastClick : Maybe (EntityId, SVGCoord) }
   | InputMode
   | DeleteMode
-  | TransformMode { lastClick : Maybe (EntityId, Ctm.ClientCoord) }
+  | TransformMode (Maybe Move)
 
 initialTransformMode =
-  TransformMode { lastClick = Nothing }
+  TransformMode Nothing
 
 initialMachineMode =
   MachineMode { lastClick = Nothing }
@@ -456,16 +472,49 @@ update msg model =
               else
                 noCmd { model | mode = initialMachineMode }
 
+        TransformMode maybeMove ->
+          case maybeMove of
+            Nothing ->
+              let
+                localCoord = localOfGlobalCoord model.components id svgCoord
+                move = { clickedId = id, clickedCoord = localCoord, currentCoord = localCoord }
+              in noCmd { model | mode = TransformMode (Just move) }
+            Just move ->
+              noCmd { model | mode = initialTransformMode, components = applyMove move model.components }
+
         _ -> noCmd model
 
-    _ -> (model, Cmd.none)
+    SvgMouseMoved clientCoord ->
+      let
+        svgCoord = svgOfClientCoord model clientCoord
+        _ = Debug.log "msg" (msg, svgCoord)
+      in
+      case model.mode of
+        TransformMode (Just move) ->
+          let
+            localCoord = localOfGlobalCoord model.components move.clickedId svgCoord
+          in
+          noCmd { model | mode = TransformMode (Just { move | currentCoord = localCoord }) }
+        _ -> noCmd model
+
+    _ -> noCmd model
 
 svgOfClientCoord { screenCtm } =
   Ctm.svgOfClientCoord >> Ctm.matrixTransform screenCtm
 
+applyMove : Move -> Components -> Components
+applyMove move components =
+  let offset = subtractCoords move.currentCoord move.clickedCoord
+  in offsetTransform move.clickedId offset components
+
 drawSvg : Model -> List (Svg Msg)
 drawSvg model =
-  let components = model.components
+  let
+    components =
+      case model.mode of
+        TransformMode (Just move) ->
+          applyMove move model.components
+        _ -> model.components
   in
  -- [drawGMachine model.machine]
   --++
