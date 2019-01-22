@@ -375,9 +375,15 @@ type alias Move =
   , currentCoord : SVGCoord
   }
 
+type alias MachineModeInfo =
+  { parentId : Maybe EntityId
+  , clickedCoord : SVGCoord
+  , currentCoord : SVGCoord
+  }
+
 type Mode
   = ConnectMode
-  | MachineMode { lastClick : Maybe (EntityId, SVGCoord) }
+  | MachineMode (Maybe MachineModeInfo)
   | InputMode
   | DeleteMode
   | TransformMode (Maybe Move)
@@ -386,7 +392,7 @@ initialTransformMode =
   TransformMode Nothing
 
 initialMachineMode =
-  MachineMode { lastClick = Nothing }
+  MachineMode Nothing
 
 type Msg
   = NoOp
@@ -455,17 +461,19 @@ update msg model =
       case model.mode of
         DeleteMode -> noCmd { model | components = deleteEntity id model.components }
 
-        MachineMode { lastClick } ->
-          case lastClick of
+        MachineMode maybeInfo ->
+          let
+            localCoord = localOfGlobalCoord model.components id svgCoord
+          in
+          case maybeInfo of
             Nothing ->
-              noCmd { model | mode = MachineMode { lastClick = Just (id, localOfGlobalCoord model.components id svgCoord) |> Debug.log "lastClick" } }
-            Just (prevClickedId, prevLocalCoord) ->
-              if prevClickedId == id
+              noCmd { model | mode = MachineMode (Just { parentId = Just id, clickedCoord = localCoord, currentCoord = localCoord }) |> Debug.log "lastClick" }
+            Just previous ->
+              if previous.parentId == Just id
               then
                 let
-                  localCoord = localOfGlobalCoord model.components id svgCoord
                   machine = { parent = Nothing, children = Set.empty, inputs = [], machineType = TAbs }
-                  transform = rectOfCoords prevLocalCoord localCoord
+                  transform = rectOfCoords previous.clickedCoord localCoord
                   components = addMachine machine transform model.components |> (\(components_, childId) -> setParentChild id childId components_)
                 in
                 noCmd { model | components = components, mode = initialMachineMode }
