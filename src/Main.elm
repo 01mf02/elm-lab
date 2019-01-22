@@ -116,6 +116,7 @@ type alias Components =
   , machines : Dict EntityId EMachine
   , connections : Dict EntityId Connection
   , transforms : Dict EntityId Transform
+  , svgClasses : Dict EntityId String
   }
 
 foldl : (EntityId -> a -> b -> b) -> b -> Dict EntityId a -> b
@@ -137,11 +138,17 @@ drawMachineContour id transform =
 
 drawEMachine : Components -> EntityId -> EMachine -> Transform -> Svg Msg
 drawEMachine components id machine transform =
+  let
+    groupAttributes =
+      [ SA.transform ("translate" ++ stringFromSVGCoord transform.position) ]
+      ++
+      (Dict.get id components.svgClasses |> Maybe.map (SA.class >> List.singleton) |> Maybe.withDefault [])
+  in
   drawEMachines components
     (DictE.keepOnly machine.children components.machines)
     components.transforms
     |> (::) (drawMachineContour id transform)
-    |> Svg.g [ SA.transform ("translate" ++ stringFromSVGCoord transform.position) ]
+    |> Svg.g groupAttributes
 
 drawEMachines : Components -> Dict EntityId EMachine -> Dict EntityId Transform -> List (Svg Msg)
 drawEMachines components =
@@ -196,12 +203,19 @@ initialComponents =
   , machines = Dict.empty
   , connections = Dict.empty
   , transforms = Dict.empty
+  , svgClasses = Dict.empty
   }
 
 nameEntity : EntityId -> String -> Components -> Components
 nameEntity id name components =
   { components
     | names = Dict.insert id name components.names
+  }
+
+setSvgClass : EntityId -> String -> Components -> Components
+setSvgClass id class components =
+  { components
+    | svgClasses = Dict.insert id class components.svgClasses
   }
 
 setParentChild : EntityId -> EntityId -> Components -> Components
@@ -223,6 +237,7 @@ deleteEntity id components =
   , machines = Dict.remove id components.machines
   , connections = Dict.remove id components.connections
   , transforms = Dict.remove id components.transforms
+  , svgClasses = Dict.remove id components.svgClasses
   }
 
 offsetTransform : EntityId -> SVGCoord -> Components -> Components
@@ -342,17 +357,24 @@ findSmallestMachineContaining coord among components =
     Nothing (DictE.keepOnly among components.machines) components.transforms
 -}
 
+emptyMachine =
+  { parent = Nothing
+  , children = Set.empty
+  , inputs = []
+  , machineType = TAbs
+  }
+
 testComponents : Components
 testComponents =
   initialComponents
     |> addMachine
-         { parent = Nothing, children = Set.empty, inputs = [], machineType = TAbs }
+         emptyMachine
          { position = { x = 20, y = 20 }
          , size = { width = 60, height = 60 }
          }
     |> (\( components, childId ) ->
        addMachine
-         { parent = Nothing, children = Set.empty, inputs = [], machineType = TAbs }
+         emptyMachine
          { position = { x = 100, y = 100 }
          , size = { width = 300, height = 300 }
          }
@@ -472,9 +494,8 @@ update msg model =
               if previous.parentId == Just id
               then
                 let
-                  machine = { parent = Nothing, children = Set.empty, inputs = [], machineType = TAbs }
                   transform = rectOfCoords previous.clickedCoord localCoord
-                  components = addMachine machine transform model.components |> (\(components_, childId) -> setParentChild id childId components_)
+                  components = addMachine emptyMachine transform model.components |> (\(components_, childId) -> setParentChild id childId components_)
                 in
                 noCmd { model | components = components, mode = initialMachineMode }
               else
@@ -503,6 +524,15 @@ update msg model =
             localCoord = localOfGlobalCoord model.components move.clickedId svgCoord
           in
           noCmd { model | mode = TransformMode (Just { move | currentCoord = localCoord }) }
+        MachineMode (Just previous) ->
+          let
+            localCoord =
+              case previous.parentId of
+                Nothing -> svgCoord
+                Just parentId -> localOfGlobalCoord model.components parentId svgCoord
+          in
+          noCmd { model | mode = MachineMode (Just { previous | currentCoord = localCoord }) }
+
         _ -> noCmd model
 
     _ -> noCmd model
@@ -522,6 +552,20 @@ drawSvg model =
       case model.mode of
         TransformMode (Just move) ->
           applyMove move model.components
+        MachineMode (Just previous) ->
+          let
+            machine = emptyMachine
+            transform = rectOfCoords previous.clickedCoord previous.currentCoord
+          in
+            addMachine machine transform model.components
+              |> (\( components_, childId ) ->
+                   ( setSvgClass childId "creating" components_, childId )
+                 )
+              |> (\(components_, childId) ->
+                   case previous.parentId of
+                     Nothing -> components_
+                     Just parentId -> setParentChild parentId childId components_
+                 )
         _ -> model.components
   in
  -- [drawGMachine model.machine]

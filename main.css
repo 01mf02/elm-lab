@@ -28,3 +28,10 @@
   stroke-dasharray: 10;
   stroke-dashoffset: calc(var(--ms-elapsed)/100);
 }
+
+/* thanks to:
+ * <https://stackoverflow.com/questions/22168420/is-there-a-pointer-eventshoveronly-or-similar-in-css/48395231#48395231>
+ */
+#svg .creating:hover {
+  pointer-events: none;
+}
