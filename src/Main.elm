@@ -550,16 +550,22 @@ update msg model =
             Nothing ->
               noCmd { model | mode = MachineMode (Just { clicked = mouseEvent, hovering = mouseEvent }) |> Debug.log "lastClick" }
             Just previous ->
-              if isValidNewMachine { previous | hovering = mouseEvent } model.components |> MaybeE.isJust
-              then
+              case isValidNewMachine { previous | hovering = mouseEvent } model.components of
+              Just inside ->
                 let
                   rect = rectOfCoords previous.clicked.coord localCoord
                   transform = emptyTransform rect.position
                   machine = emptyMachine rect.size
-                  components = addMachine machine transform model.components |> (\(components_, childId) -> setParentChild id childId components_)
+                  components =
+                    Set.foldl (\x -> unsetParent x) model.components inside
+                      |> addMachine machine transform
+                      |> (\(components_, newId) ->
+                           setParentChild id newId components_
+                           |> (\components__ -> Set.foldl (\x -> setParentChild newId x) components__ inside)
+                         )
                 in
                 noCmd { model | components = components, mode = initialMachineMode }
-              else
+              Nothing ->
                 noCmd model
 
         TransformMode maybeMove ->
