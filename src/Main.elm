@@ -83,9 +83,7 @@ type MachineType
   | TReference String
 
 type alias EMachine =
-  { parent : Maybe EntityId
-  , children : Set EntityId
-  , inputs : List (Maybe EntityId)
+  { inputs : List (Maybe EntityId)
   , machineType : MachineType
   , size : SVGSize
   }
@@ -108,7 +106,11 @@ addConnection connection components =
   , components.nextId
   )
 
-type alias Transform = SVGRect
+type alias Transform =
+  { translate : SVGCoord
+  , parent : Maybe EntityId
+  , children : Set EntityId
+  }
 
 
 type alias Components =
@@ -127,14 +129,15 @@ foldl =
 stringFromSVGCoord { x, y } =
   "(" ++ String.fromFloat x ++ "," ++ String.fromFloat y ++ ")"
 
-drawMachineContour id transform =
+drawMachineContour : EntityId -> EMachine -> Svg Msg
+drawMachineContour id machine =
   let
     attributes =
       [ SA.class "machine-contour"
       , SE.on "click" <| JD.map (Clicked id) <| Ctm.pageCoordDecoder
       , SE.on "mousemove" <| JD.map (MouseMoved id) <| Ctm.pageCoordDecoder
       ]
-      ++ rectAttributes { transform | position = { x = 0, y = 0 } }
+      ++ rectAttributes { position = { x = 0, y = 0 }, size = machine.size }
   in
   Svg.rect attributes [ ]
 
@@ -142,14 +145,14 @@ drawEMachine : Components -> EntityId -> EMachine -> Transform -> Svg Msg
 drawEMachine components id machine transform =
   let
     groupAttributes =
-      [ SA.transform ("translate" ++ stringFromSVGCoord transform.position) ]
+      [ SA.transform ("translate" ++ stringFromSVGCoord transform.translate) ]
       ++
       (Dict.get id components.svgClasses |> Maybe.map (SA.class >> List.singleton) |> Maybe.withDefault [])
   in
   drawEMachines components
-    (DictE.keepOnly machine.children components.machines)
+    (DictE.keepOnly transform.children components.machines)
     components.transforms
-    |> (::) (drawMachineContour id transform)
+    |> (::) (drawMachineContour id machine)
     |> Svg.g groupAttributes
 
 drawEMachines : Components -> Dict EntityId EMachine -> Dict EntityId Transform -> List (Svg Msg)
@@ -197,6 +200,12 @@ map2 fn id component1 component2 =
           |> Maybe.map (\b -> fn a b)
       )
 
+rootTransform : Transform
+rootTransform =
+  { translate = { x = 0, y = 0 }
+  , parent = Nothing
+  , children = Set.empty
+  }
 
 initialComponents : Components
 initialComponents =
@@ -204,7 +213,7 @@ initialComponents =
   , names = Dict.empty
   , machines = Dict.empty
   , connections = Dict.empty
-  , transforms = Dict.singleton rootTransformId { position = { x = 0, y = 0 }, size = { width = 0, height = 0 } }
+  , transforms = Dict.singleton rootTransformId rootTransform
   , svgClasses = Dict.empty
   }
 
@@ -228,11 +237,11 @@ setParentChild parentId childId components =
   let
     addChild parent = { parent | children = Set.insert childId parent.children }
     setParent child = { child | parent = Just parentId }
-    updateMachines =
+    updateTransforms =
       Dict.update parentId (Maybe.map addChild)
         >> Dict.update childId (Maybe.map setParent)
   in
-  { components | machines = updateMachines components.machines }
+  { components | transforms = updateTransforms components.transforms }
 
 -- remove children?
 deleteEntity : EntityId -> Components -> Components
@@ -249,13 +258,14 @@ offsetTransform : EntityId -> SVGCoord -> Components -> Components
 offsetTransform id coord components =
   let
     offset transform =
-      { transform | position = addCoords coord transform.position }
+      { transform | translate = addCoords coord transform.translate }
   in
   { components
     | transforms = Dict.update id (Maybe.map offset) components.transforms
   }
 
 
+{-
 transformCtm transform =
   Ctm.translationMatrix transform.position
 
@@ -269,6 +279,7 @@ getCtm id components =
     )
     id components.machines components.transforms
     |> Maybe.withDefault Ctm.unit
+-}
 
 coordInRect : SVGRect -> SVGCoord -> Bool
 coordInRect rect coord =
@@ -299,24 +310,14 @@ rectOfCoords c1 c2 =
   }
 
 
-transformCoord : SVGRect -> SVGCoord -> SVGCoord
-transformCoord rect =
-  addCoords rect.position
+transformCoord : Transform -> SVGCoord -> SVGCoord
+transformCoord transform =
+  addCoords transform.translate
 
-transformInverse rect coord =
-  subtractCoords coord rect.position
+transformInverse : Transform -> SVGCoord -> SVGCoord
+transformInverse transform coord =
+  subtractCoords coord transform.translate
 
-combineTransforms : Transform -> Transform -> Transform
-combineTransforms t1 t2 =
-  { position = addCoords t1.position t2.position
-  , size = t1.size
-  }
-
-unitTransform : Transform
-unitTransform =
-  { position = { x = 0, y = 0 }
-  , size = { width = 1, height = 1 }
-  }
 
 -- transformation is by default from local to global (local -> global)
 
@@ -326,13 +327,13 @@ transformTrail : Components -> EntityId -> List Transform
 transformTrail components =
   let
     aux acc id =
-      map2
-        (\machine transform ->
-          case machine.parent of
-            Nothing -> transform :: acc
-            Just parent -> aux (transform :: acc) parent
-        )
-        id components.machines components.transforms
+      Dict.get id components.transforms
+        |> Maybe.map
+          (\transform ->
+            case transform.parent of
+              Nothing -> transform :: acc
+              Just parent -> aux (transform :: acc) parent
+          )
         |> Maybe.withDefault []
   in
   aux []
@@ -364,11 +365,16 @@ findSmallestMachineContaining coord among components =
 
 emptyMachine : SVGSize -> EMachine
 emptyMachine size =
-  { parent = Nothing
-  , children = Set.empty
-  , inputs = []
+  { inputs = []
   , machineType = TAbs
   , size = size
+  }
+
+emptyTransform : SVGCoord -> Transform
+emptyTransform translate =
+  { translate = translate
+  , parent = Nothing
+  , children = Set.empty
   }
 
 testComponents : Components
@@ -376,17 +382,13 @@ testComponents =
   initialComponents
     |> addMachine
          (emptyMachine { width = 60, height = 60 })
-         { position = { x = 20, y = 20 }
-         , size = { width = 60, height = 60 }
-         }
+         (emptyTransform { x = 20, y = 20 })
     |> (\( components, childId ) ->
        addMachine
          (emptyMachine { width = 300, height = 300 })
-         { position = { x = 100, y = 100 }
-         , size = { width = 300, height = 300 }
-         }
+         (emptyTransform { x = 100, y = 100 })
          components
-         |> (\( components_, parentId ) -> nameEntity parentId "test" components_ |> setParentChild parentId childId)
+         |> (\( components_, parentId ) -> nameEntity parentId "test" components_ |> setParentChild parentId childId |> setParentChild rootTransformId parentId)
        )
 
 
@@ -497,8 +499,9 @@ update msg model =
               if previous.clicked.id == id
               then
                 let
-                  transform = rectOfCoords previous.clicked.coord localCoord
-                  machine = emptyMachine transform.size
+                  rect = rectOfCoords previous.clicked.coord localCoord
+                  transform = emptyTransform rect.position
+                  machine = emptyMachine rect.size
                   components = addMachine machine transform model.components |> (\(components_, childId) -> setParentChild id childId components_)
                 in
                 noCmd { model | components = components, mode = initialMachineMode }
@@ -560,8 +563,9 @@ drawSvg model =
           applyMove move model.components
         MachineMode (Just previous) ->
           let
-            transform = rectOfCoords previous.clicked.coord previous.hovering.coord
-            machine = emptyMachine transform.size
+            rect = rectOfCoords previous.clicked.coord previous.hovering.coord
+            transform = emptyTransform rect.position
+            machine = emptyMachine rect.size
           in
             addMachine machine transform model.components
               |> (\( components_, childId ) ->
@@ -571,13 +575,19 @@ drawSvg model =
                    setParentChild previous.clicked.id childId components_
                  )
         _ -> model.components
+
+    rootChildren =
+      Dict.get rootTransformId components.transforms
+        |> Maybe.map .children
+        |> Maybe.withDefault Set.empty
   in
  -- [drawGMachine model.machine]
   --++
-  foldl3
-    (\id machine transform name ->
+  foldl2
+    (\id machine transform ->
       (::) (drawEMachine components id machine transform)
-    ) [] components.machines components.transforms components.names
+    ) [] (DictE.keepOnly rootChildren components.machines) components.transforms
+
 
 rectAttributes : Rectangular a -> List (Svg.Attribute msg)
 rectAttributes { position, size } =
