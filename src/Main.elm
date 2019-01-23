@@ -130,8 +130,8 @@ drawMachineContour id transform =
   let
     attributes =
       [ SA.class "machine-contour"
-      , SE.on "click" <| JD.map (ObjectClicked id) <| Ctm.pageCoordDecoder
-      , SE.on "mousemove" <| JD.map (SvgMouseMoved id) <| Ctm.pageCoordDecoder
+      , SE.on "click" <| JD.map (Clicked id) <| Ctm.pageCoordDecoder
+      , SE.on "mousemove" <| JD.map (MouseMoved id) <| Ctm.pageCoordDecoder
       ]
       ++ rectAttributes { transform | position = { x = 0, y = 0 } }
   in
@@ -199,13 +199,16 @@ map2 fn id component1 component2 =
 
 initialComponents : Components
 initialComponents =
-  { nextId = 0
+  { nextId = 1
   , names = Dict.empty
   , machines = Dict.empty
   , connections = Dict.empty
-  , transforms = Dict.empty
+  , transforms = Dict.singleton rootTransformId { position = { x = 0, y = 0 }, size = { width = 0, height = 0 } }
   , svgClasses = Dict.empty
   }
+
+rootTransformId : EntityId
+rootTransformId = 0
 
 nameEntity : EntityId -> String -> Components -> Components
 nameEntity id name components =
@@ -425,9 +428,8 @@ type Msg
   = NoOp
   | ModeChanged Mode
   | ScreenCtmGot (Maybe Ctm)
-  | SvgClicked Ctm.ClientCoord
-  | SvgMouseMoved EntityId Ctm.ClientCoord
-  | ObjectClicked EntityId Ctm.ClientCoord
+  | MouseMoved EntityId Ctm.ClientCoord
+  | Clicked EntityId Ctm.ClientCoord
   | OnAnimationFrameDelta Float
 
 
@@ -480,7 +482,7 @@ update msg model =
         CssPropPort.set ":root" "--ms-elapsed" (String.fromFloat model.msElapsed)
       )
 
-    ObjectClicked id clientCoord ->
+    Clicked id clientCoord ->
       let
         svgCoord = svgOfClientCoord model clientCoord
         _ = Debug.log "msg" (msg, svgCoord)
@@ -519,7 +521,7 @@ update msg model =
 
         _ -> noCmd model
 
-    SvgMouseMoved id clientCoord ->
+    MouseMoved id clientCoord ->
       let
         svgCoord = svgOfClientCoord model clientCoord
         -- _ = Debug.log "msg" (msg, svgCoord)
@@ -651,8 +653,8 @@ drawBackground : EntityId -> Svg Msg
 drawBackground id =
   let
     attributes =
-     [ SE.on "click" <| JD.map (ObjectClicked id) <| Ctm.pageCoordDecoder
-     , SE.on "mousemove" <| JD.map (SvgMouseMoved id) <| Ctm.pageCoordDecoder
+     [ SE.on "click" <| JD.map (Clicked id) <| Ctm.pageCoordDecoder
+     , SE.on "mousemove" <| JD.map (MouseMoved id) <| Ctm.pageCoordDecoder
      , SA.id "background"
      ] ++ rectAttributes { position = { x = 0, y = 0 }, size = { width = 800, height = 600 } }
   in
@@ -671,7 +673,7 @@ view model =
             , SA.viewBox "0 0 800 600"
             , SA.id svgElementId
             ]
-            (drawBackground (-1) :: drawSvg model)
+            (drawBackground rootTransformId :: drawSvg model)
         ]
     , H.footer []
         [ H.text "Hello World!"
