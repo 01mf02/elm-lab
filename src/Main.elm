@@ -120,6 +120,7 @@ type alias Components =
   , connections : Dict EntityId Connection
   , transforms : Dict EntityId Transform
   , svgClasses : Dict EntityId String
+  , invalids : Set EntityId
   }
 
 foldl : (EntityId -> a -> b -> b) -> b -> Dict EntityId a -> b
@@ -141,6 +142,36 @@ drawMachineContour id machine =
   in
   Svg.rect attributes [ ]
 
+drawMachineStrikethrough machine =
+  drawStrikethrough
+    [ SA.class "strikethrough" ]
+    { position = { x = 0, y = 0 }, size = machine.size }
+
+drawStrikethrough : List (Svg.Attribute msg) -> Rectangular a -> Svg msg
+drawStrikethrough attrs { position, size } =
+  let
+    x = position.x
+    y = position.x
+    w = size.width
+    h = size.height
+  in
+  Svg.g attrs
+    [ Svg.line
+        [ SA.x1 (String.fromFloat x)
+        , SA.y1 (String.fromFloat y)
+        , SA.x2 (String.fromFloat (x + w))
+        , SA.y2 (String.fromFloat (y + h))
+        ]
+        []
+    , Svg.line
+        [ SA.x1 (String.fromFloat (x + w))
+        , SA.y1 (String.fromFloat y)
+        , SA.x2 (String.fromFloat x)
+        , SA.y2 (String.fromFloat (y + h))
+        ]
+        []
+    ]
+
 drawEMachine : Components -> EntityId -> EMachine -> Transform -> Svg Msg
 drawEMachine components id machine transform =
   let
@@ -149,11 +180,12 @@ drawEMachine components id machine transform =
       ++
       (Dict.get id components.svgClasses |> Maybe.map (SA.class >> List.singleton) |> Maybe.withDefault [])
   in
-  drawEMachines components
-    (DictE.keepOnly transform.children components.machines)
-    components.transforms
-    |> (::) (drawMachineContour id machine)
-    |> Svg.g groupAttributes
+  Svg.g groupAttributes
+    <| (::) (drawMachineContour id machine)
+    <| (if Set.member id components.invalids then (::) (drawMachineStrikethrough machine) else identity)
+    <| drawEMachines components
+         (DictE.keepOnly transform.children components.machines)
+         components.transforms
 
 drawEMachines : Components -> Dict EntityId EMachine -> Dict EntityId Transform -> List (Svg Msg)
 drawEMachines components =
@@ -215,6 +247,7 @@ initialComponents =
   , connections = Dict.empty
   , transforms = Dict.singleton rootTransformId rootTransform
   , svgClasses = Dict.empty
+  , invalids = Set.empty
   }
 
 rootTransformId : EntityId
@@ -243,6 +276,10 @@ setParentChild parentId childId components =
   in
   { components | transforms = updateTransforms components.transforms }
 
+setInvalid : EntityId -> Components -> Components
+setInvalid id components =
+  { components | invalids = Set.insert id components.invalids }
+
 -- remove children?
 deleteEntity : EntityId -> Components -> Components
 deleteEntity id components =
@@ -252,6 +289,7 @@ deleteEntity id components =
   , connections = Dict.remove id components.connections
   , transforms = Dict.remove id components.transforms
   , svgClasses = Dict.remove id components.svgClasses
+  , invalids = Set.remove id components.invalids
   }
 
 offsetTransform : EntityId -> SVGCoord -> Components -> Components
@@ -549,9 +587,8 @@ applyMove move components =
   let offset = subtractCoords move.hovering.coord move.clicked.coord
   in offsetTransform move.clicked.id offset components
 
--- if we are inside bounds of parent
--- true, else false
-
+isValidMachine move =
+  move.clicked.id == move.hovering.id
 
 
 drawSvg : Model -> List (Svg Msg)
@@ -573,6 +610,7 @@ drawSvg model =
                  )
               |> (\(components_, childId) ->
                    setParentChild previous.clicked.id childId components_
+                   |> (if isValidMachine previous then identity else setInvalid childId)
                  )
         _ -> model.components
 

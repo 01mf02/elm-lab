@@ -37,6 +37,11 @@
   pointer-events: fill;
 }
 
+#svg .strikethrough {
+  stroke: red;
+  stroke-width: 3;
+}
+
 /* thanks to:
  * <https://stackoverflow.com/questions/22168420/is-there-a-pointer-eventshoveronly-or-similar-in-css/48395231#48395231>
  */
