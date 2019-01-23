@@ -11,7 +11,7 @@ import Svg.Attributes as SA
 import Svg.Events as SE
 
 import Dict.Extra as DictE
---import Maybe.Extra as MaybeE
+import Maybe.Extra as MaybeE
 
 import Ctm exposing (Ctm)
 import CssPropPort
@@ -276,6 +276,22 @@ setParentChild parentId childId components =
   in
   { components | transforms = updateTransforms components.transforms }
 
+unsetParent : EntityId -> Components -> Components
+unsetParent childId components =
+  let
+    maybeParentId = Dict.get childId components.transforms |> Maybe.andThen .parent
+    removeChild parent = { parent | children = Set.remove childId parent.children }
+    removeParent child = { child | parent = Nothing }
+    updateTransforms =
+      MaybeE.unwrap identity (\ parentId -> Dict.update parentId (Maybe.map removeChild)) maybeParentId
+        >> Dict.update childId (Maybe.map removeParent)
+  in
+  { components | transforms = updateTransforms components.transforms }
+
+
+
+
+
 setInvalid : EntityId -> Components -> Components
 setInvalid id components =
   { components | invalids = Set.insert id components.invalids }
@@ -534,7 +550,7 @@ update msg model =
             Nothing ->
               noCmd { model | mode = MachineMode (Just { clicked = mouseEvent, hovering = mouseEvent }) |> Debug.log "lastClick" }
             Just previous ->
-              if isValidNewMachine { previous | hovering = mouseEvent } model.components
+              if isValidNewMachine { previous | hovering = mouseEvent } model.components |> MaybeE.isJust
               then
                 let
                   rect = rectOfCoords previous.clicked.coord localCoord
@@ -587,7 +603,7 @@ applyMove move components =
   let offset = subtractCoords move.hovering.coord move.clicked.coord
   in offsetTransform move.clicked.id offset components
 
-isValidNewMachine : Move -> Components -> Bool
+isValidNewMachine : Move -> Components -> Maybe (Set EntityId)
 isValidNewMachine { clicked, hovering } components =
   if clicked.id == hovering.id
   then
@@ -597,18 +613,24 @@ isValidNewMachine { clicked, hovering } components =
         Dict.get clicked.id components.transforms
           |> Maybe.map .children
           |> Maybe.withDefault Set.empty
+      childMachines = DictE.keepOnly clickedChildren components.machines
     in
     foldl2
-      (\id machine transform isValid ->
-        if isValid
-        then
-          let rect = { position = transform.translate, size = machine.size }
-          in noIntersectionBB rect newRect
-        else
-          False
-      ) True (DictE.keepOnly clickedChildren components.machines) components.transforms
+      (\id machine transform ->
+        Maybe.andThen
+          (\inside ->
+            let rect = { position = transform.translate, size = machine.size }
+            in
+            if insideBB newRect rect
+            then Just (Set.insert id inside)
+            else
+              if noOverlapBB newRect rect
+              then Just inside
+              else Nothing
+          )
+      ) (Just Set.empty) childMachines components.transforms
   else
-    False
+    Nothing
 
 noOverlapBB : Rectangular a -> Rectangular b -> Bool
 noOverlapBB bb1 bb2 =
@@ -623,15 +645,6 @@ insideBB bbOut bbIn =
   bbOut.position.y < bbIn.position.y &&
   bbOut.position.x + bbOut.size.width  > bbIn.position.x + bbIn.size.width &&
   bbOut.position.y + bbOut.size.height > bbIn.position.y + bbIn.size.height
-
-noIntersectionBB : Rectangular a -> Rectangular b -> Bool
-noIntersectionBB bb1 bb2 =
-     insideBB bb1 bb2
-  || insideBB bb2 bb1
-  || noOverlapBB bb1 bb2
-
-
-
 
 
 
@@ -654,7 +667,7 @@ drawSvg model =
                  )
               |> (\(components_, childId) ->
                    setParentChild previous.clicked.id childId components_
-                   |> (if isValidNewMachine previous model.components then identity else setInvalid childId)
+                   |> (if isValidNewMachine previous model.components |> MaybeE.isJust then identity else setInvalid childId)
                  )
         _ -> model.components
 
