@@ -392,10 +392,14 @@ type alias Model =
   , msElapsed : Float
   }
 
+type alias MouseEvent =
+  { id : EntityId
+  , coord : SVGCoord
+  }
+
 type alias Move =
-  { clickedId : EntityId
-  , clickedCoord : SVGCoord
-  , currentCoord : SVGCoord
+  { clicked : MouseEvent
+  , hovering : MouseEvent
   }
 
 type alias MachineModeInfo =
@@ -507,7 +511,8 @@ update msg model =
             Nothing ->
               let
                 localCoord = localOfGlobalCoord model.components id svgCoord
-                move = { clickedId = id, clickedCoord = localCoord, currentCoord = localCoord }
+                mouseEvent = { id = id, coord = localCoord }
+                move = { clicked = mouseEvent, hovering = mouseEvent }
               in noCmd { model | mode = TransformMode (Just move) }
             Just move ->
               noCmd { model | mode = initialTransformMode, components = applyMove move model.components }
@@ -522,9 +527,10 @@ update msg model =
       case model.mode of
         TransformMode (Just move) ->
           let
-            localCoord = localOfGlobalCoord model.components move.clickedId svgCoord
+            localCoord = localOfGlobalCoord model.components move.clicked.id svgCoord
+            mouseEvent = { id = id, coord = localCoord }
           in
-          noCmd { model | mode = TransformMode (Just { move | currentCoord = localCoord }) }
+          noCmd { model | mode = TransformMode (Just { move | hovering = mouseEvent }) }
         MachineMode (Just previous) ->
           let
             localCoord =
@@ -543,8 +549,8 @@ svgOfClientCoord { screenCtm } =
 
 applyMove : Move -> Components -> Components
 applyMove move components =
-  let offset = subtractCoords move.currentCoord move.clickedCoord
-  in offsetTransform move.clickedId offset components
+  let offset = subtractCoords move.hovering.coord move.clicked.coord
+  in offsetTransform move.clicked.id offset components
 
 -- if we are inside bounds of parent
 -- true, else false
