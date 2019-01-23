@@ -534,7 +534,7 @@ update msg model =
             Nothing ->
               noCmd { model | mode = MachineMode (Just { clicked = mouseEvent, hovering = mouseEvent }) |> Debug.log "lastClick" }
             Just previous ->
-              if previous.clicked.id == id
+              if isValidNewMachine { previous | hovering = mouseEvent } model.components
               then
                 let
                   rect = rectOfCoords previous.clicked.coord localCoord
@@ -544,7 +544,7 @@ update msg model =
                 in
                 noCmd { model | components = components, mode = initialMachineMode }
               else
-                noCmd { model | mode = initialMachineMode }
+                noCmd model
 
         TransformMode maybeMove ->
           case maybeMove of
@@ -587,8 +587,52 @@ applyMove move components =
   let offset = subtractCoords move.hovering.coord move.clicked.coord
   in offsetTransform move.clicked.id offset components
 
-isValidMachine move =
-  move.clicked.id == move.hovering.id
+isValidNewMachine : Move -> Components -> Bool
+isValidNewMachine { clicked, hovering } components =
+  if clicked.id == hovering.id
+  then
+    let
+      newRect = rectOfCoords clicked.coord hovering.coord
+      clickedChildren =
+        Dict.get clicked.id components.transforms
+          |> Maybe.map .children
+          |> Maybe.withDefault Set.empty
+    in
+    foldl2
+      (\id machine transform isValid ->
+        if isValid
+        then
+          let rect = { position = transform.translate, size = machine.size }
+          in noIntersectionBB rect newRect
+        else
+          False
+      ) True (DictE.keepOnly clickedChildren components.machines) components.transforms
+  else
+    False
+
+noOverlapBB : Rectangular a -> Rectangular b -> Bool
+noOverlapBB bb1 bb2 =
+     bb1.position.x + bb1.size.width  < bb2.position.x
+  || bb2.position.x + bb2.size.width  < bb1.position.x
+  || bb1.position.y + bb1.size.height < bb2.position.y
+  || bb2.position.y + bb2.size.height < bb1.position.y
+
+insideBB : Rectangular a -> Rectangular b -> Bool
+insideBB bbOut bbIn =
+  bbOut.position.x < bbIn.position.x &&
+  bbOut.position.y < bbIn.position.y &&
+  bbOut.position.x + bbOut.size.width  > bbIn.position.x + bbIn.size.width &&
+  bbOut.position.y + bbOut.size.height > bbIn.position.y + bbIn.size.height
+
+noIntersectionBB : Rectangular a -> Rectangular b -> Bool
+noIntersectionBB bb1 bb2 =
+     insideBB bb1 bb2
+  || insideBB bb2 bb1
+  || noOverlapBB bb1 bb2
+
+
+
+
 
 
 drawSvg : Model -> List (Svg Msg)
@@ -610,7 +654,7 @@ drawSvg model =
                  )
               |> (\(components_, childId) ->
                    setParentChild previous.clicked.id childId components_
-                   |> (if isValidMachine previous then identity else setInvalid childId)
+                   |> (if isValidNewMachine previous model.components then identity else setInvalid childId)
                  )
         _ -> model.components
 
