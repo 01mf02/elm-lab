@@ -405,15 +405,9 @@ type alias Move =
   , hovering : MouseEvent
   }
 
-type alias MachineModeInfo =
-  { parentId : EntityId
-  , clickedCoord : SVGCoord
-  , currentCoord : SVGCoord
-  }
-
 type Mode
   = ConnectMode
-  | MachineMode (Maybe MachineModeInfo)
+  | MachineMode (Maybe Move)
   | InputMode
   | DeleteMode
   | TransformMode (Maybe Move)
@@ -493,15 +487,16 @@ update msg model =
         MachineMode maybeInfo ->
           let
             localCoord = localOfGlobalCoord model.components id svgCoord
+            mouseEvent = { id = id, coord = localCoord }
           in
           case maybeInfo of
             Nothing ->
-              noCmd { model | mode = MachineMode (Just { parentId = id, clickedCoord = localCoord, currentCoord = localCoord }) |> Debug.log "lastClick" }
+              noCmd { model | mode = MachineMode (Just { clicked = mouseEvent, hovering = mouseEvent }) |> Debug.log "lastClick" }
             Just previous ->
-              if previous.parentId == id
+              if previous.clicked.id == id
               then
                 let
-                  transform = rectOfCoords previous.clickedCoord localCoord
+                  transform = rectOfCoords previous.clicked.coord localCoord
                   components = addMachine emptyMachine transform model.components |> (\(components_, childId) -> setParentChild id childId components_)
                 in
                 noCmd { model | components = components, mode = initialMachineMode }
@@ -535,9 +530,10 @@ update msg model =
           noCmd { model | mode = TransformMode (Just { move | hovering = mouseEvent }) }
         MachineMode (Just previous) ->
           let
-            localCoord = localOfGlobalCoord model.components previous.parentId svgCoord
+            localCoord = localOfGlobalCoord model.components previous.clicked.id svgCoord
+            mouseEvent = { id = id, coord = localCoord }
           in
-          noCmd { model | mode = MachineMode (Just { previous | currentCoord = localCoord }) }
+          noCmd { model | mode = MachineMode (Just { previous | hovering = mouseEvent }) }
 
         _ -> noCmd model
 
@@ -566,14 +562,14 @@ drawSvg model =
         MachineMode (Just previous) ->
           let
             machine = emptyMachine
-            transform = rectOfCoords previous.clickedCoord previous.currentCoord
+            transform = rectOfCoords previous.clicked.coord previous.hovering.coord
           in
             addMachine machine transform model.components
               |> (\( components_, childId ) ->
                    ( setSvgClass childId "creating" components_, childId )
                  )
               |> (\(components_, childId) ->
-                   setParentChild previous.parentId childId components_
+                   setParentChild previous.clicked.id childId components_
                  )
         _ -> model.components
   in
