@@ -30,6 +30,14 @@
 }
 
 /* thanks to:
+ * <https://stackoverflow.com/questions/44196142/make-full-bounding-area-of-svg-shape-clickable>
+ */
+#svg #background {
+  fill: none;
+  pointer-events: fill;
+}
+
+/* thanks to:
  * <https://stackoverflow.com/questions/22168420/is-there-a-pointer-eventshoveronly-or-similar-in-css/48395231#48395231>
  */
 #svg .creating:hover {

@@ -131,6 +131,7 @@ drawMachineContour id transform =
     attributes =
       [ SA.class "machine-contour"
       , SE.on "click" <| JD.map (ObjectClicked id) <| Ctm.pageCoordDecoder
+      , SE.on "mousemove" <| JD.map (SvgMouseMoved id) <| Ctm.pageCoordDecoder
       ]
       ++ rectAttributes { transform | position = { x = 0, y = 0 } }
   in
@@ -421,7 +422,7 @@ type Msg
   | ModeChanged Mode
   | ScreenCtmGot (Maybe Ctm)
   | SvgClicked Ctm.ClientCoord
-  | SvgMouseMoved Ctm.ClientCoord
+  | SvgMouseMoved EntityId Ctm.ClientCoord
   | ObjectClicked EntityId Ctm.ClientCoord
   | OnAnimationFrameDelta Float
 
@@ -513,10 +514,10 @@ update msg model =
 
         _ -> noCmd model
 
-    SvgMouseMoved clientCoord ->
+    SvgMouseMoved id clientCoord ->
       let
         svgCoord = svgOfClientCoord model clientCoord
-        _ = Debug.log "msg" (msg, svgCoord)
+        -- _ = Debug.log "msg" (msg, svgCoord)
       in
       case model.mode of
         TransformMode (Just move) ->
@@ -535,7 +536,7 @@ update msg model =
 
         _ -> noCmd model
 
-    _ -> noCmd model
+    _ -> let _ = Debug.log "msg" msg in noCmd model
 
 svgOfClientCoord { screenCtm } =
   Ctm.svgOfClientCoord >> Ctm.matrixTransform screenCtm
@@ -544,6 +545,11 @@ applyMove : Move -> Components -> Components
 applyMove move components =
   let offset = subtractCoords move.currentCoord move.clickedCoord
   in offsetTransform move.clickedId offset components
+
+-- if we are inside bounds of parent
+-- true, else false
+
+
 
 drawSvg : Model -> List (Svg Msg)
 drawSvg model =
@@ -635,6 +641,17 @@ drawGMachine machine =
         ] ++ List.map drawGMachine floating)
     _ -> Debug.todo "draw"
 
+drawBackground : EntityId -> Svg Msg
+drawBackground id =
+  let
+    attributes =
+     [ SE.on "click" <| JD.map (ObjectClicked id) <| Ctm.pageCoordDecoder
+     , SE.on "mousemove" <| JD.map (SvgMouseMoved id) <| Ctm.pageCoordDecoder
+     , SA.id "background"
+     ] ++ rectAttributes { position = { x = 0, y = 0 }, size = { width = 800, height = 600 } }
+  in
+    Svg.rect attributes []
+
 view : Model -> Html Msg
 view model =
   H.div []
@@ -646,11 +663,9 @@ view model =
             [ SA.width "800px"
             , SA.height "600px"
             , SA.viewBox "0 0 800 600"
-            , SE.on "click" <| JD.map SvgClicked <| Ctm.pageCoordDecoder
-            , SE.on "mousemove" <| JD.map SvgMouseMoved <| Ctm.pageCoordDecoder
             , SA.id svgElementId
             ]
-            (drawSvg model)
+            (drawBackground (-1) :: drawSvg model)
         ]
     , H.footer []
         [ H.text "Hello World!"
