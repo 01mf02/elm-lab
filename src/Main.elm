@@ -406,7 +406,7 @@ type alias Move =
   }
 
 type alias MachineModeInfo =
-  { parentId : Maybe EntityId
+  { parentId : EntityId
   , clickedCoord : SVGCoord
   , currentCoord : SVGCoord
   }
@@ -496,9 +496,9 @@ update msg model =
           in
           case maybeInfo of
             Nothing ->
-              noCmd { model | mode = MachineMode (Just { parentId = Just id, clickedCoord = localCoord, currentCoord = localCoord }) |> Debug.log "lastClick" }
+              noCmd { model | mode = MachineMode (Just { parentId = id, clickedCoord = localCoord, currentCoord = localCoord }) |> Debug.log "lastClick" }
             Just previous ->
-              if previous.parentId == Just id
+              if previous.parentId == id
               then
                 let
                   transform = rectOfCoords previous.clickedCoord localCoord
@@ -535,10 +535,7 @@ update msg model =
           noCmd { model | mode = TransformMode (Just { move | hovering = mouseEvent }) }
         MachineMode (Just previous) ->
           let
-            localCoord =
-              case previous.parentId of
-                Nothing -> svgCoord
-                Just parentId -> localOfGlobalCoord model.components parentId svgCoord
+            localCoord = localOfGlobalCoord model.components previous.parentId svgCoord
           in
           noCmd { model | mode = MachineMode (Just { previous | currentCoord = localCoord }) }
 
@@ -576,9 +573,7 @@ drawSvg model =
                    ( setSvgClass childId "creating" components_, childId )
                  )
               |> (\(components_, childId) ->
-                   case previous.parentId of
-                     Nothing -> components_
-                     Just parentId -> setParentChild parentId childId components_
+                   setParentChild previous.parentId childId components_
                  )
         _ -> model.components
   in
