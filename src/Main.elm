@@ -87,6 +87,7 @@ type alias EMachine =
   , children : Set EntityId
   , inputs : List (Maybe EntityId)
   , machineType : MachineType
+  , size : SVGSize
   }
 
 addMachine : EMachine -> Transform -> Components -> (Components, EntityId)
@@ -361,24 +362,26 @@ findSmallestMachineContaining coord among components =
     Nothing (DictE.keepOnly among components.machines) components.transforms
 -}
 
-emptyMachine =
+emptyMachine : SVGSize -> EMachine
+emptyMachine size =
   { parent = Nothing
   , children = Set.empty
   , inputs = []
   , machineType = TAbs
+  , size = size
   }
 
 testComponents : Components
 testComponents =
   initialComponents
     |> addMachine
-         emptyMachine
+         (emptyMachine { width = 60, height = 60 })
          { position = { x = 20, y = 20 }
          , size = { width = 60, height = 60 }
          }
     |> (\( components, childId ) ->
        addMachine
-         emptyMachine
+         (emptyMachine { width = 300, height = 300 })
          { position = { x = 100, y = 100 }
          , size = { width = 300, height = 300 }
          }
@@ -479,16 +482,14 @@ update msg model =
     Clicked id clientCoord ->
       let
         svgCoord = svgOfClientCoord model clientCoord
+        localCoord = localOfGlobalCoord model.components id svgCoord
+        mouseEvent = { id = id, coord = localCoord }
         _ = Debug.log "msg" (msg, svgCoord)
       in
       case model.mode of
         DeleteMode -> noCmd { model | components = deleteEntity id model.components }
 
         MachineMode maybeInfo ->
-          let
-            localCoord = localOfGlobalCoord model.components id svgCoord
-            mouseEvent = { id = id, coord = localCoord }
-          in
           case maybeInfo of
             Nothing ->
               noCmd { model | mode = MachineMode (Just { clicked = mouseEvent, hovering = mouseEvent }) |> Debug.log "lastClick" }
@@ -497,7 +498,8 @@ update msg model =
               then
                 let
                   transform = rectOfCoords previous.clicked.coord localCoord
-                  components = addMachine emptyMachine transform model.components |> (\(components_, childId) -> setParentChild id childId components_)
+                  machine = emptyMachine transform.size
+                  components = addMachine machine transform model.components |> (\(components_, childId) -> setParentChild id childId components_)
                 in
                 noCmd { model | components = components, mode = initialMachineMode }
               else
@@ -506,10 +508,7 @@ update msg model =
         TransformMode maybeMove ->
           case maybeMove of
             Nothing ->
-              let
-                localCoord = localOfGlobalCoord model.components id svgCoord
-                mouseEvent = { id = id, coord = localCoord }
-                move = { clicked = mouseEvent, hovering = mouseEvent }
+              let move = { clicked = mouseEvent, hovering = mouseEvent }
               in noCmd { model | mode = TransformMode (Just move) }
             Just move ->
               noCmd { model | mode = initialTransformMode, components = applyMove move model.components }
@@ -561,8 +560,8 @@ drawSvg model =
           applyMove move model.components
         MachineMode (Just previous) ->
           let
-            machine = emptyMachine
             transform = rectOfCoords previous.clicked.coord previous.hovering.coord
+            machine = emptyMachine transform.size
           in
             addMachine machine transform model.components
               |> (\( components_, childId ) ->
