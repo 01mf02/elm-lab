@@ -265,6 +265,12 @@ setSvgClass id class components =
     | svgClasses = Dict.insert id class components.svgClasses
   }
 
+transformFrom : Components -> EntityId -> EntityId -> SVGCoord -> SVGCoord
+transformFrom components from to =
+  globalOfLocalCoord components from
+    >> localOfGlobalCoord components to
+
+
 setParentChild : EntityId -> EntityId -> Components -> Components
 setParentChild parentId childId components =
   let
@@ -276,6 +282,7 @@ setParentChild parentId childId components =
   in
   { components | transforms = updateTransforms components.transforms }
 
+{-
 unsetParent : EntityId -> Components -> Components
 unsetParent childId components =
   let
@@ -287,10 +294,29 @@ unsetParent childId components =
         >> Dict.update childId (Maybe.map removeParent)
   in
   { components | transforms = updateTransforms components.transforms }
+-}
 
-
-
-
+reorientParentChild : EntityId -> EntityId -> Components -> Components
+reorientParentChild newParentId childId components =
+  let
+    maybeChild = Dict.get childId components.transforms
+    oldParentId =
+      maybeChild
+        |> Maybe.andThen .parent
+        |> Maybe.withDefault rootTransformId
+    addChild parent = { parent | children = Set.insert childId parent.children }
+    removeChild parent = { parent | children = Set.remove childId parent.children }
+    updateChild transform =
+      { transform
+        | parent = Just newParentId
+        , translate = transformFrom components oldParentId newParentId transform.translate
+      }
+    updateTransforms =
+      Dict.update oldParentId (Maybe.map removeChild)
+        >> Dict.update newParentId (Maybe.map addChild)
+        >> Dict.update childId (Maybe.map updateChild)
+  in
+  { components | transforms = updateTransforms components.transforms }
 
 setInvalid : EntityId -> Components -> Components
 setInvalid id components =
@@ -308,15 +334,15 @@ deleteEntity id components =
   , invalids = Set.remove id components.invalids
   }
 
-offsetTransform : EntityId -> SVGCoord -> Components -> Components
-offsetTransform id coord components =
-  let
-    offset transform =
-      { transform | translate = addCoords coord transform.translate }
-  in
+mapTransform : (Transform -> Transform) -> EntityId -> Components -> Components
+mapTransform fn id components =
   { components
-    | transforms = Dict.update id (Maybe.map offset) components.transforms
+    | transforms = Dict.update id (Maybe.map fn) components.transforms
   }
+
+offsetTransform : SVGCoord -> Transform -> Transform
+offsetTransform offset transform =
+  { transform | translate = addCoords offset transform.translate }
 
 
 {-
@@ -391,6 +417,7 @@ transformTrail components =
         |> Maybe.withDefault []
   in
   aux []
+
 
 localOfGlobalCoord : Components -> EntityId -> SVGCoord -> SVGCoord
 localOfGlobalCoord components id coord =
@@ -557,11 +584,10 @@ update msg model =
                   transform = emptyTransform rect.position
                   machine = emptyMachine rect.size
                   components =
-                    Set.foldl (\x -> unsetParent x) model.components inside
-                      |> addMachine machine transform
+                    addMachine machine transform model.components
                       |> (\(components_, newId) ->
                            setParentChild id newId components_
-                           |> (\components__ -> Set.foldl (\x -> setParentChild newId x) components__ inside)
+                           |> (\components__ -> Set.foldl (reorientParentChild newId) components__ inside)
                          )
                 in
                 noCmd { model | components = components, mode = initialMachineMode }
@@ -607,7 +633,7 @@ svgOfClientCoord { screenCtm } =
 applyMove : Move -> Components -> Components
 applyMove move components =
   let offset = subtractCoords move.hovering.coord move.clicked.coord
-  in offsetTransform move.clicked.id offset components
+  in mapTransform (offsetTransform offset) move.clicked.id components
 
 isValidNewMachine : Move -> Components -> Maybe (Set EntityId)
 isValidNewMachine { clicked, hovering } components =
