@@ -658,25 +658,40 @@ isValidMoveMachine { clicked, hovering } components =
         hoveringRect =
           { position = globalOfLocalCoord components hovering.id { x = 0, y = 0 }
           , size = hoveringMachine.size
-          } |> Debug.log "hoveringRect"
-        offset = subtractCoords hovering.coord clicked.coord |> Debug.log "offset"
+          }
+        offset = subtractCoords hovering.coord clicked.coord
         clickedRect =
           { position = globalOfLocalCoord components clicked.id { x = 0, y = 0 } |> addCoords offset
           , size = clickedMachine.size
-          } |> Debug.log "clickedRect"
+          }
+        hoveringChildren =
+          Dict.get hovering.id components.transforms
+            |> Maybe.map .children
+            |> Maybe.withDefault Set.empty
+        hoveringMachines = DictE.keepOnly hoveringChildren components.machines
       in
-      insideBB hoveringRect clickedRect
+      if insideBB hoveringRect clickedRect
+      then
+        foldl2
+          (\id machine transform sofar ->
+            if sofar
+            then
+              let
+                rect =
+                  { position = globalOfLocalCoord components id { x = 0, y = 0 }
+                  , size = machine.size
+                  }
+              in
+              id == clicked.id || noOverlapBB clickedRect rect
+            else False
+          ) True hoveringMachines components.transforms
+      else
+        False
     )
     (Dict.get clicked.id components.machines)
     (Dict.get clicked.id components.transforms)
     (Dict.get hovering.id components.machines)
     |> Maybe.withDefault True
-  -- transform clicked machine to coordinates of hovering id
-  -- clicked and hovering should be global coordinates
-  -- transform clicked machine and hovering machine to rect
-  -- use insideBB to check whether clicked machine is fully inside hovering machine
-  -- if not, then False
-  -- if so, then return if there is no intersection with any children of hovering machine
 
 isValidNewMachine : ClickHover -> Components -> Maybe (Set EntityId)
 isValidNewMachine { clicked, hovering } components =
