@@ -46,3 +46,7 @@
 #svg .creating {
   pointer-events: none;
 }
+
+#svg .moving {
+  pointer-events: none;
+}

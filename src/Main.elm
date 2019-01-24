@@ -652,7 +652,25 @@ applyMove move components =
 
 isValidMoveMachine : ClickHover -> Components -> Bool
 isValidMoveMachine { clicked, hovering } components =
-  True
+  Maybe.map3
+    (\clickedMachine clickedTransform hoveringMachine ->
+      let
+        hoveringRect =
+          { position = globalOfLocalCoord components hovering.id { x = 0, y = 0 }
+          , size = hoveringMachine.size
+          } |> Debug.log "hoveringRect"
+        offset = subtractCoords hovering.coord clicked.coord |> Debug.log "offset"
+        clickedRect =
+          { position = globalOfLocalCoord components clicked.id { x = 0, y = 0 } |> addCoords offset
+          , size = clickedMachine.size
+          } |> Debug.log "clickedRect"
+      in
+      insideBB hoveringRect clickedRect
+    )
+    (Dict.get clicked.id components.machines)
+    (Dict.get clicked.id components.transforms)
+    (Dict.get hovering.id components.machines)
+    |> Maybe.withDefault True
   -- transform clicked machine to coordinates of hovering id
   -- clicked and hovering should be global coordinates
   -- transform clicked machine and hovering machine to rect
@@ -712,6 +730,7 @@ drawSvg model =
       case model.mode of
         TransformMode (Just move) ->
           applyMove move model.components
+            |> setSvgClass move.clicked.id "moving"
             |> (if isValidMoveMachine move model.components then identity else setInvalid move.clicked.id)
         MachineMode (Just previous) ->
           let
