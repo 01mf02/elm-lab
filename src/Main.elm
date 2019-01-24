@@ -612,7 +612,9 @@ update msg model =
               then
                 { model
                   | mode = initialTransformMode
-                  , components = applyMove move model.components
+                  , components =
+                      applyMove move model.components
+                        |> reorientParentChild move.hovering.id move.clicked.id
                 } |> noCmd
               else
                 noCmd model
@@ -650,6 +652,8 @@ applyMove move components =
   let offset = subtractCoords move.hovering.coord move.clicked.coord
   in mapTransform (offsetTransform offset) move.clicked.id components
 
+-- TODO: detect when pointer is on root plane and
+-- moving machine intersects another machine
 isValidMoveMachine : ClickHover -> Components -> Bool
 isValidMoveMachine { clicked, hovering } components =
   Maybe.map3
