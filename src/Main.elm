@@ -13,6 +13,7 @@ import Svg.Events as SE
 import Dict.Extra as DictE
 import Maybe.Extra as MaybeE
 
+import Coord exposing (SVGCoord)
 import Ctm exposing (Ctm)
 import CssPropPort
 import ScreenCtmPort
@@ -26,11 +27,6 @@ main =
     , view = view
     , subscriptions = subscriptions
     }
-
-type alias SVGCoord =
-  { x : Float
-  , y : Float
-  }
 
 type alias SVGSize =
   { width : Float
@@ -127,16 +123,13 @@ foldl : (EntityId -> a -> b -> b) -> b -> Dict EntityId a -> b
 foldl =
     Dict.foldl
 
-stringFromSVGCoord { x, y } =
-  "(" ++ String.fromFloat x ++ "," ++ String.fromFloat y ++ ")"
-
 drawMachineContour : EntityId -> EMachine -> Svg Msg
 drawMachineContour id machine =
   let
     attributes =
       [ SA.class "machine-contour"
-      , SE.on "click" <| JD.map (Clicked id) <| Ctm.pageCoordDecoder
-      , SE.on "mousemove" <| JD.map (MouseMoved id) <| Ctm.pageCoordDecoder
+      , SE.on "click" <| JD.map (Clicked id) <| Coord.pageCoordDecoder
+      , SE.on "mousemove" <| JD.map (MouseMoved id) <| Coord.pageCoordDecoder
       ]
       ++ rectAttributes { position = { x = 0, y = 0 }, size = machine.size }
   in
@@ -176,7 +169,7 @@ drawEMachine : Components -> EntityId -> EMachine -> Transform -> Svg Msg
 drawEMachine components id machine transform =
   let
     groupAttributes =
-      [ SA.transform ("translate" ++ stringFromSVGCoord transform.translate) ]
+      [ SA.transform ("translate" ++ Coord.toString transform.translate) ]
       ++
       (Dict.get id components.svgClasses |> Maybe.map (SA.class >> List.singleton) |> Maybe.withDefault [])
   in
@@ -342,7 +335,7 @@ mapTransform fn id components =
 
 offsetTransform : SVGCoord -> Transform -> Transform
 offsetTransform offset transform =
-  { transform | translate = addCoords offset transform.translate }
+  { transform | translate = Coord.add offset transform.translate }
 
 
 {-
@@ -368,15 +361,6 @@ coordInRect rect coord =
   coord.y > rect.position.y &&
   coord.y < rect.position.y + rect.size.height
 
-combineCoords : (Float -> Float -> Float) -> SVGCoord -> SVGCoord -> SVGCoord
-combineCoords fn c1 c2 =
-  { x = fn c1.x c2.x
-  , y = fn c1.y c2.y
-  }
-
-addCoords = combineCoords (+)
-subtractCoords = combineCoords (-)
-
 rectOfCoords : SVGCoord -> SVGCoord -> SVGRect
 rectOfCoords c1 c2 =
   let
@@ -392,11 +376,11 @@ rectOfCoords c1 c2 =
 
 transformCoord : Transform -> SVGCoord -> SVGCoord
 transformCoord transform =
-  addCoords transform.translate
+  Coord.add transform.translate
 
 transformInverse : Transform -> SVGCoord -> SVGCoord
 transformInverse transform coord =
-  subtractCoords coord transform.translate
+  Coord.subtract coord transform.translate
 
 
 -- transformation is by default from local to global (local -> global)
@@ -514,8 +498,8 @@ type Msg
   = NoOp
   | ModeChanged Mode
   | ScreenCtmGot (Maybe Ctm)
-  | MouseMoved EntityId Ctm.ClientCoord
-  | Clicked EntityId Ctm.ClientCoord
+  | MouseMoved EntityId Coord.ClientCoord
+  | Clicked EntityId Coord.ClientCoord
   | OnAnimationFrameDelta Float
 
 
@@ -637,11 +621,11 @@ update msg model =
     _ -> let _ = Debug.log "msg" msg in noCmd model
 
 svgOfClientCoord { screenCtm } =
-  Ctm.svgOfClientCoord >> Ctm.matrixTransform screenCtm
+  Coord.svgOfClientCoord >> Ctm.matrixTransform screenCtm
 
 applyMove : ClickHover -> Components -> Components
 applyMove move components =
-  let offset = subtractCoords move.hovering.coord move.clicked.coord
+  let offset = Coord.subtract move.hovering.coord move.clicked.coord
   in mapTransform (offsetTransform offset) move.clicked.id components
 
 -- TODO: detect when pointer is on root plane and
@@ -655,9 +639,9 @@ isValidMoveMachine { clicked, hovering } components =
           { position = globalOfLocalCoord components hovering.id { x = 0, y = 0 }
           , size = hoveringMachine.size
           }
-        offset = subtractCoords hovering.coord clicked.coord
+        offset = Coord.subtract hovering.coord clicked.coord
         clickedRect =
-          { position = globalOfLocalCoord components clicked.id { x = 0, y = 0 } |> addCoords offset
+          { position = globalOfLocalCoord components clicked.id { x = 0, y = 0 } |> Coord.add offset
           , size = clickedMachine.size
           }
         hoveringChildren =
@@ -841,8 +825,8 @@ drawBackground : EntityId -> Svg Msg
 drawBackground id =
   let
     attributes =
-     [ SE.on "click" <| JD.map (Clicked id) <| Ctm.pageCoordDecoder
-     , SE.on "mousemove" <| JD.map (MouseMoved id) <| Ctm.pageCoordDecoder
+     [ SE.on "click" <| JD.map (Clicked id) <| Coord.pageCoordDecoder
+     , SE.on "mousemove" <| JD.map (MouseMoved id) <| Coord.pageCoordDecoder
      , SA.id "background"
      ] ++ rectAttributes { position = { x = 0, y = 0 }, size = { width = 800, height = 600 } }
   in

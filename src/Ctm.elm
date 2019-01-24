@@ -2,6 +2,8 @@ module Ctm exposing (..)
 
 import Json.Decode as JD exposing (Decoder)
 
+import Coord exposing (SVGCoord)
+
 -- Thanks to Markus Laire for his advice on transforming
 -- client coordinates to SVG coordinates!
 -- <https://discourse.elm-lang.org/t/dispatching-custom-events-only-if-needed/2740>
@@ -15,31 +17,6 @@ type alias Ctm =
   , e : Float
   , f : Float
   }
-
-type alias SVGCoord =
-  { x : Float
-  , y : Float
-  }
-
-type alias ClientCoord =
-  { x : Int
-  , y : Int
-  }
-
-svgOfClientCoord : ClientCoord -> SVGCoord
-svgOfClientCoord {x, y} = {x = toFloat x, y = toFloat y}
-
-clientCoordDecoder : Decoder ClientCoord
-clientCoordDecoder =
-  JD.map2 ClientCoord
-    (JD.at [ "clientX" ] JD.int)
-    (JD.at [ "clientY" ] JD.int)
-
-pageCoordDecoder : Decoder ClientCoord
-pageCoordDecoder =
-  JD.map2 ClientCoord
-    (JD.at [ "pageX" ] JD.int)
-    (JD.at [ "pageY" ] JD.int)
 
 ctmDecoder : Decoder Ctm
 ctmDecoder =
