@@ -491,6 +491,12 @@ type alias ClickHover =
   , hovering : MouseEvent
   }
 
+initClickHover : MouseEvent -> ClickHover
+initClickHover mouseEvent =
+  { clicked = mouseEvent
+  , hovering = mouseEvent
+  }
+
 type Mode
   = ConnectMode
   | MachineMode (Maybe ClickHover)
@@ -575,7 +581,7 @@ update msg model =
         MachineMode maybeInfo ->
           case maybeInfo of
             Nothing ->
-              noCmd { model | mode = MachineMode (Just { clicked = mouseEvent, hovering = mouseEvent }) |> Debug.log "lastClick" }
+              noCmd { model | mode = MachineMode (Just (initClickHover mouseEvent)) |> Debug.log "lastClick" }
             Just previous ->
               case isValidNewMachine { previous | hovering = mouseEvent } model.components of
               Just inside ->
@@ -595,12 +601,14 @@ update msg model =
                 noCmd model
 
         TransformMode maybeClickHover ->
+          let mouseEventGlobal = { id = id, coord = svgCoord }
+          in
           case maybeClickHover of
             Nothing ->
-              let move = { clicked = mouseEvent, hovering = mouseEvent }
+              let move = initClickHover mouseEventGlobal
               in noCmd { model | mode = TransformMode (Just move) }
             Just move ->
-              if isValidMoveMachine { move | hovering = mouseEvent } model.components
+              if isValidMoveMachine move model.components
               then
                 { model
                   | mode = initialTransformMode
@@ -619,8 +627,8 @@ update msg model =
       case model.mode of
         TransformMode (Just move) ->
           let
-            localCoord = localOfGlobalCoord model.components move.clicked.id svgCoord
-            mouseEvent = { id = id, coord = localCoord }
+            --localCoord = localOfGlobalCoord model.components move.clicked.id svgCoord
+            mouseEvent = { id = id, coord = svgCoord }
           in
           noCmd { model | mode = TransformMode (Just { move | hovering = mouseEvent }) }
         MachineMode (Just previous) ->
