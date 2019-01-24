@@ -241,7 +241,7 @@ rootTransform =
 
 initialComponents : Components
 initialComponents =
-  { nextId = 1
+  { nextId = rootTransformId + 1
   , names = Dict.empty
   , machines = Dict.empty
   , connections = Dict.empty
@@ -486,17 +486,17 @@ type alias MouseEvent =
   , coord : SVGCoord
   }
 
-type alias Move =
+type alias ClickHover =
   { clicked : MouseEvent
   , hovering : MouseEvent
   }
 
 type Mode
   = ConnectMode
-  | MachineMode (Maybe Move)
+  | MachineMode (Maybe ClickHover)
   | InputMode
   | DeleteMode
-  | TransformMode (Maybe Move)
+  | TransformMode (Maybe ClickHover)
 
 initialTransformMode =
   TransformMode Nothing
@@ -594,13 +594,20 @@ update msg model =
               Nothing ->
                 noCmd model
 
-        TransformMode maybeMove ->
-          case maybeMove of
+        TransformMode maybeClickHover ->
+          case maybeClickHover of
             Nothing ->
               let move = { clicked = mouseEvent, hovering = mouseEvent }
               in noCmd { model | mode = TransformMode (Just move) }
             Just move ->
-              noCmd { model | mode = initialTransformMode, components = applyMove move model.components }
+              if isValidMoveMachine { move | hovering = mouseEvent } model.components
+              then
+                { model
+                  | mode = initialTransformMode
+                  , components = applyMove move model.components
+                } |> noCmd
+              else
+                noCmd model
 
         _ -> noCmd model
 
@@ -630,12 +637,22 @@ update msg model =
 svgOfClientCoord { screenCtm } =
   Ctm.svgOfClientCoord >> Ctm.matrixTransform screenCtm
 
-applyMove : Move -> Components -> Components
+applyMove : ClickHover -> Components -> Components
 applyMove move components =
   let offset = subtractCoords move.hovering.coord move.clicked.coord
   in mapTransform (offsetTransform offset) move.clicked.id components
 
-isValidNewMachine : Move -> Components -> Maybe (Set EntityId)
+isValidMoveMachine : ClickHover -> Components -> Bool
+isValidMoveMachine { clicked, hovering } components =
+  True
+  -- transform clicked machine to coordinates of hovering id
+  -- clicked and hovering should be global coordinates
+  -- transform clicked machine and hovering machine to rect
+  -- use insideBB to check whether clicked machine is fully inside hovering machine
+  -- if not, then False
+  -- if so, then return if there is no intersection with any children of hovering machine
+
+isValidNewMachine : ClickHover -> Components -> Maybe (Set EntityId)
 isValidNewMachine { clicked, hovering } components =
   if clicked.id == hovering.id
   then
@@ -687,6 +704,7 @@ drawSvg model =
       case model.mode of
         TransformMode (Just move) ->
           applyMove move model.components
+            |> (if isValidMoveMachine move model.components then identity else setInvalid move.clicked.id)
         MachineMode (Just previous) ->
           let
             rect = rectOfCoords previous.clicked.coord previous.hovering.coord
