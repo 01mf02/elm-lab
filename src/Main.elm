@@ -17,6 +17,7 @@ import Coord exposing (SVGCoord)
 import Ctm exposing (Ctm)
 import CssPropPort
 import ScreenCtmPort
+import Transform exposing (Transform, rootTransformId, setParentChild, reorientParentChild)
 
 
 
@@ -101,12 +102,6 @@ addConnection connection components =
     }
   , components.nextId
   )
-
-type alias Transform =
-  { translate : SVGCoord
-  , parent : Maybe EntityId
-  , children : Set EntityId
-  }
 
 
 type alias Components =
@@ -225,26 +220,16 @@ map2 fn id component1 component2 =
           |> Maybe.map (\b -> fn a b)
       )
 
-rootTransform : Transform
-rootTransform =
-  { translate = { x = 0, y = 0 }
-  , parent = Nothing
-  , children = Set.empty
-  }
-
 initialComponents : Components
 initialComponents =
   { nextId = rootTransformId + 1
   , names = Dict.empty
   , machines = Dict.empty
   , connections = Dict.empty
-  , transforms = Dict.singleton rootTransformId rootTransform
+  , transforms = Dict.singleton rootTransformId Transform.root
   , svgClasses = Dict.empty
   , invalids = Set.empty
   }
-
-rootTransformId : EntityId
-rootTransformId = 0
 
 nameEntity : EntityId -> String -> Components -> Components
 nameEntity id name components =
@@ -258,22 +243,8 @@ setSvgClass id class components =
     | svgClasses = Dict.insert id class components.svgClasses
   }
 
-transformFrom : Components -> EntityId -> EntityId -> SVGCoord -> SVGCoord
-transformFrom components from to =
-  globalOfLocalCoord components from
-    >> localOfGlobalCoord components to
 
 
-setParentChild : EntityId -> EntityId -> Components -> Components
-setParentChild parentId childId components =
-  let
-    addChild parent = { parent | children = Set.insert childId parent.children }
-    setParent child = { child | parent = Just parentId }
-    updateTransforms =
-      Dict.update parentId (Maybe.map addChild)
-        >> Dict.update childId (Maybe.map setParent)
-  in
-  { components | transforms = updateTransforms components.transforms }
 
 {-
 unsetParent : EntityId -> Components -> Components
@@ -289,27 +260,6 @@ unsetParent childId components =
   { components | transforms = updateTransforms components.transforms }
 -}
 
-reorientParentChild : EntityId -> EntityId -> Components -> Components
-reorientParentChild newParentId childId components =
-  let
-    maybeChild = Dict.get childId components.transforms
-    oldParentId =
-      maybeChild
-        |> Maybe.andThen .parent
-        |> Maybe.withDefault rootTransformId
-    addChild parent = { parent | children = Set.insert childId parent.children }
-    removeChild parent = { parent | children = Set.remove childId parent.children }
-    updateChild transform =
-      { transform
-        | parent = Just newParentId
-        , translate = transformFrom components oldParentId newParentId transform.translate
-      }
-    updateTransforms =
-      Dict.update oldParentId (Maybe.map removeChild)
-        >> Dict.update newParentId (Maybe.map addChild)
-        >> Dict.update childId (Maybe.map updateChild)
-  in
-  { components | transforms = updateTransforms components.transforms }
 
 setInvalid : EntityId -> Components -> Components
 setInvalid id components =
@@ -326,16 +276,6 @@ deleteEntity id components =
   , svgClasses = Dict.remove id components.svgClasses
   , invalids = Set.remove id components.invalids
   }
-
-mapTransform : (Transform -> Transform) -> EntityId -> Components -> Components
-mapTransform fn id components =
-  { components
-    | transforms = Dict.update id (Maybe.map fn) components.transforms
-  }
-
-offsetTransform : SVGCoord -> Transform -> Transform
-offsetTransform offset transform =
-  { transform | translate = Coord.add offset transform.translate }
 
 
 {-
@@ -374,42 +314,10 @@ rectOfCoords c1 c2 =
   }
 
 
-transformCoord : Transform -> SVGCoord -> SVGCoord
-transformCoord transform =
-  Coord.add transform.translate
-
-transformInverse : Transform -> SVGCoord -> SVGCoord
-transformInverse transform coord =
-  Coord.subtract coord transform.translate
 
 
--- transformation is by default from local to global (local -> global)
 
 
--- transformations of more top-level machines come first
-transformTrail : Components -> EntityId -> List Transform
-transformTrail components =
-  let
-    aux acc id =
-      Dict.get id components.transforms
-        |> Maybe.map
-          (\transform ->
-            case transform.parent of
-              Nothing -> transform :: acc
-              Just parent -> aux (transform :: acc) parent
-          )
-        |> Maybe.withDefault []
-  in
-  aux []
-
-
-localOfGlobalCoord : Components -> EntityId -> SVGCoord -> SVGCoord
-localOfGlobalCoord components id coord =
-  List.foldl transformInverse coord (transformTrail components id)
-
-globalOfLocalCoord : Components -> EntityId -> SVGCoord -> SVGCoord
-globalOfLocalCoord components id coord =
-  List.foldr transformCoord coord (transformTrail components id)
 
 {-
 findSmallestMachineContaining : SVGCoord -> Set EntityId -> Components -> Maybe EntityId
@@ -435,23 +343,17 @@ emptyMachine size =
   , size = size
   }
 
-emptyTransform : SVGCoord -> Transform
-emptyTransform translate =
-  { translate = translate
-  , parent = Nothing
-  , children = Set.empty
-  }
 
 testComponents : Components
 testComponents =
   initialComponents
     |> addMachine
          (emptyMachine { width = 60, height = 60 })
-         (emptyTransform { x = 20, y = 20 })
+         (Transform.empty { x = 20, y = 20 })
     |> (\( components, childId ) ->
        addMachine
          (emptyMachine { width = 300, height = 300 })
-         (emptyTransform { x = 100, y = 100 })
+         (Transform.empty { x = 100, y = 100 })
          components
          |> (\( components_, parentId ) -> nameEntity parentId "test" components_ |> setParentChild parentId childId |> setParentChild rootTransformId parentId)
        )
@@ -570,9 +472,9 @@ update msg model =
               case isValidNewMachine clickHover model.components of
                 Just inside ->
                   let
-                    toLocal = localOfGlobalCoord model.components clickHover.hovering.id
+                    toLocal = Transform.toLocal model.components clickHover.hovering.id
                     rect = rectOfCoords (toLocal clickHover.clicked.coord) (toLocal clickHover.hovering.coord)
-                    transform = emptyTransform rect.position
+                    transform = Transform.empty rect.position
                     machine = emptyMachine rect.size
                     components =
                       addMachine machine transform model.components
@@ -626,7 +528,7 @@ svgOfClientCoord { screenCtm } =
 applyMove : ClickHover -> Components -> Components
 applyMove move components =
   let offset = Coord.subtract move.hovering.coord move.clicked.coord
-  in mapTransform (offsetTransform offset) move.clicked.id components
+  in Transform.map (Transform.translateBy offset) move.clicked.id components
 
 -- TODO: detect when pointer is on root plane and
 -- moving machine intersects another machine
@@ -636,12 +538,12 @@ isValidMoveMachine { clicked, hovering } components =
     (\clickedMachine clickedTransform hoveringMachine ->
       let
         hoveringRect =
-          { position = globalOfLocalCoord components hovering.id { x = 0, y = 0 }
+          { position = Transform.toGlobal components hovering.id { x = 0, y = 0 }
           , size = hoveringMachine.size
           }
         offset = Coord.subtract hovering.coord clicked.coord
         clickedRect =
-          { position = globalOfLocalCoord components clicked.id { x = 0, y = 0 } |> Coord.add offset
+          { position = Transform.toGlobal components clicked.id { x = 0, y = 0 } |> Coord.add offset
           , size = clickedMachine.size
           }
         hoveringChildren =
@@ -658,7 +560,7 @@ isValidMoveMachine { clicked, hovering } components =
             then
               let
                 rect =
-                  { position = globalOfLocalCoord components id { x = 0, y = 0 }
+                  { position = Transform.toGlobal components id { x = 0, y = 0 }
                   , size = machine.size
                   }
               in
@@ -691,7 +593,7 @@ isValidNewMachine { clicked, hovering } components =
           (\inside ->
             let
               rect =
-                { position = globalOfLocalCoord components id { x = 0, y = 0 }
+                { position = Transform.toGlobal components id { x = 0, y = 0 }
                 , size = machine.size
                 }
             in
@@ -733,9 +635,9 @@ drawSvg model =
             |> (if isValidMoveMachine move model.components then identity else setInvalid move.clicked.id)
         MachineMode (Just previous) ->
           let
-            toLocal = localOfGlobalCoord model.components previous.clicked.id
+            toLocal = Transform.toLocal model.components previous.clicked.id
             rect = rectOfCoords (toLocal previous.clicked.coord) (toLocal previous.hovering.coord)
-            transform = emptyTransform rect.position
+            transform = Transform.empty rect.position
             machine = emptyMachine rect.size
           in
             addMachine machine transform model.components
