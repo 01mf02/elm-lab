@@ -17,6 +17,7 @@ import Coord exposing (SVGCoord)
 import Ctm exposing (Ctm)
 import CssPropPort
 import ScreenCtmPort
+import Rect exposing (SVGRect, Rectangular, SVGSize)
 import Transform exposing (Transform, rootTransformId, setParentChild, reorientParentChild)
 
 
@@ -29,19 +30,6 @@ main =
     , subscriptions = subscriptions
     }
 
-type alias SVGSize =
-  { width : Float
-  , height : Float
-  }
-
-type alias Rectangular a
-  = { a | position : SVGCoord, size : SVGSize }
-
-
-type alias SVGRect =
-  { position : SVGCoord
-  , size : SVGSize
-  }
 
 type Pipe = Pipe GMachine
 type alias Socket = Maybe Pipe
@@ -126,7 +114,7 @@ drawMachineContour id machine =
       , SE.on "click" <| JD.map (Clicked id) <| Coord.pageCoordDecoder
       , SE.on "mousemove" <| JD.map (MouseMoved id) <| Coord.pageCoordDecoder
       ]
-      ++ rectAttributes { position = { x = 0, y = 0 }, size = machine.size }
+      ++ Rect.svgAttributes { position = { x = 0, y = 0 }, size = machine.size }
   in
   Svg.rect attributes [ ]
 
@@ -294,30 +282,6 @@ getCtm id components =
     |> Maybe.withDefault Ctm.unit
 -}
 
-coordInRect : SVGRect -> SVGCoord -> Bool
-coordInRect rect coord =
-  coord.x > rect.position.x &&
-  coord.x < rect.position.x + rect.size.width &&
-  coord.y > rect.position.y &&
-  coord.y < rect.position.y + rect.size.height
-
-rectOfCoords : SVGCoord -> SVGCoord -> SVGRect
-rectOfCoords c1 c2 =
-  let
-    minMax x y =
-      if x < y then (x, y) else (y, x)
-    (xmin, xmax) = minMax c1.x c2.x
-    (ymin, ymax) = minMax c1.y c2.y
-  in
-  { position = { x = xmin, y = ymin }
-  , size = { width = xmax - xmin, height = ymax - ymin }
-  }
-
-
-
-
-
-
 
 {-
 findSmallestMachineContaining : SVGCoord -> Set EntityId -> Components -> Maybe EntityId
@@ -473,7 +437,7 @@ update msg model =
                 Just inside ->
                   let
                     toLocal = Transform.toLocal model.components clickHover.hovering.id
-                    rect = rectOfCoords (toLocal clickHover.clicked.coord) (toLocal clickHover.hovering.coord)
+                    rect = Rect.fromCoords (toLocal clickHover.clicked.coord) (toLocal clickHover.hovering.coord)
                     transform = Transform.empty rect.position
                     machine = emptyMachine rect.size
                     components =
@@ -552,7 +516,7 @@ isValidMoveMachine { clicked, hovering } components =
             |> Maybe.withDefault Set.empty
         hoveringMachines = DictE.keepOnly hoveringChildren components.machines
       in
-      if insideBB hoveringRect clickedRect
+      if Rect.inside hoveringRect clickedRect
       then
         foldl2
           (\id machine transform sofar ->
@@ -564,7 +528,7 @@ isValidMoveMachine { clicked, hovering } components =
                   , size = machine.size
                   }
               in
-              id == clicked.id || noOverlapBB clickedRect rect
+              id == clicked.id || Rect.noOverlap clickedRect rect
             else False
           ) True hoveringMachines components.transforms
       else
@@ -580,7 +544,7 @@ isValidNewMachine { clicked, hovering } components =
   if clicked.id == hovering.id
   then
     let
-      newRect = rectOfCoords clicked.coord hovering.coord
+      newRect = Rect.fromCoords clicked.coord hovering.coord
       clickedChildren =
         Dict.get clicked.id components.transforms
           |> Maybe.map .children
@@ -597,10 +561,10 @@ isValidNewMachine { clicked, hovering } components =
                 , size = machine.size
                 }
             in
-            if insideBB newRect rect
+            if Rect.inside newRect rect
             then Just (Set.insert id inside)
             else
-              if noOverlapBB newRect rect
+              if Rect.noOverlap newRect rect
               then Just inside
               else Nothing
           )
@@ -608,19 +572,6 @@ isValidNewMachine { clicked, hovering } components =
   else
     Nothing
 
-noOverlapBB : Rectangular a -> Rectangular b -> Bool
-noOverlapBB bb1 bb2 =
-     bb1.position.x + bb1.size.width  < bb2.position.x
-  || bb2.position.x + bb2.size.width  < bb1.position.x
-  || bb1.position.y + bb1.size.height < bb2.position.y
-  || bb2.position.y + bb2.size.height < bb1.position.y
-
-insideBB : Rectangular a -> Rectangular b -> Bool
-insideBB bbOut bbIn =
-  bbOut.position.x < bbIn.position.x &&
-  bbOut.position.y < bbIn.position.y &&
-  bbOut.position.x + bbOut.size.width  > bbIn.position.x + bbIn.size.width &&
-  bbOut.position.y + bbOut.size.height > bbIn.position.y + bbIn.size.height
 
 
 
@@ -636,7 +587,7 @@ drawSvg model =
         MachineMode (Just previous) ->
           let
             toLocal = Transform.toLocal model.components previous.clicked.id
-            rect = rectOfCoords (toLocal previous.clicked.coord) (toLocal previous.hovering.coord)
+            rect = Rect.fromCoords (toLocal previous.clicked.coord) (toLocal previous.hovering.coord)
             transform = Transform.empty rect.position
             machine = emptyMachine rect.size
           in
@@ -663,24 +614,10 @@ drawSvg model =
     ) [] (DictE.keepOnly rootChildren components.machines) components.transforms
 
 
-rectAttributes : Rectangular a -> List (Svg.Attribute msg)
-rectAttributes { position, size } =
-  [ SA.x (String.fromFloat position.x)
-  , SA.y (String.fromFloat position.y)
-  , SA.width (String.fromFloat size.width)
-  , SA.height (String.fromFloat size.height)
-  ]
-
 machineOutputCoord : GMachine -> SVGCoord
 machineOutputCoord { position, size } =
   { x = position.x + size.width/2
   , y = position.y + size.height
-  }
-
-centerRectAt : SVGCoord -> SVGSize -> SVGRect
-centerRectAt {x, y} size =
-  { position = { x = x - size.width/2, y = y - size.height/2 }
-  , size = size
   }
 
 drawSocket : Socket -> Svg msg
@@ -719,7 +656,7 @@ drawGMachine machine =
 
       Svg.g [ SA.class "gmachine" ]
         ([ drawSocket socket
-        , Svg.rect (SA.class "machine-contour" :: SA.clipPath clipPath :: rectAttributes machine) []
+        , Svg.rect (SA.class "machine-contour" :: SA.clipPath clipPath :: Rect.svgAttributes machine) []
         ] ++ List.map drawGMachine floating)
     _ -> Debug.todo "draw"
 
@@ -730,7 +667,7 @@ drawBackground id =
      [ SE.on "click" <| JD.map (Clicked id) <| Coord.pageCoordDecoder
      , SE.on "mousemove" <| JD.map (MouseMoved id) <| Coord.pageCoordDecoder
      , SA.id "background"
-     ] ++ rectAttributes { position = { x = 0, y = 0 }, size = { width = 800, height = 600 } }
+     ] ++ Rect.svgAttributes { position = { x = 0, y = 0 }, size = { width = 800, height = 600 } }
   in
     Svg.rect attributes []
 
