@@ -571,41 +571,40 @@ update msg model =
     Clicked id clientCoord ->
       let
         svgCoord = svgOfClientCoord model clientCoord
-        localCoord = localOfGlobalCoord model.components id svgCoord
-        mouseEvent = { id = id, coord = localCoord }
+        mouseEvent = { id = id, coord = svgCoord }
         _ = Debug.log "msg" (msg, svgCoord)
       in
       case model.mode of
         DeleteMode -> noCmd { model | components = deleteEntity id model.components }
 
-        MachineMode maybeInfo ->
-          case maybeInfo of
-            Nothing ->
-              noCmd { model | mode = MachineMode (Just (initClickHover mouseEvent)) |> Debug.log "lastClick" }
-            Just previous ->
-              case isValidNewMachine { previous | hovering = mouseEvent } model.components of
-              Just inside ->
-                let
-                  rect = rectOfCoords previous.clicked.coord localCoord
-                  transform = emptyTransform rect.position
-                  machine = emptyMachine rect.size
-                  components =
-                    addMachine machine transform model.components
-                      |> (\(components_, newId) ->
-                           setParentChild id newId components_
-                           |> (\components__ -> Set.foldl (reorientParentChild newId) components__ inside)
-                         )
-                in
-                noCmd { model | components = components, mode = initialMachineMode }
-              Nothing ->
-                noCmd model
-
-        TransformMode maybeClickHover ->
-          let mouseEventGlobal = { id = id, coord = svgCoord }
-          in
+        MachineMode maybeClickHover ->
           case maybeClickHover of
             Nothing ->
-              let move = initClickHover mouseEventGlobal
+              let clickHover = initClickHover mouseEvent
+              in noCmd { model | mode = MachineMode (Just clickHover) }
+            Just clickHover ->
+              case isValidNewMachine clickHover model.components of
+                Just inside ->
+                  let
+                    toLocal = localOfGlobalCoord model.components clickHover.hovering.id
+                    rect = rectOfCoords (toLocal clickHover.clicked.coord) (toLocal clickHover.hovering.coord)
+                    transform = emptyTransform rect.position
+                    machine = emptyMachine rect.size
+                    components =
+                      addMachine machine transform model.components
+                        |> (\(components_, newId) ->
+                             setParentChild id newId components_
+                             |> (\components__ -> Set.foldl (reorientParentChild newId) components__ inside)
+                           )
+                  in
+                  noCmd { model | components = components, mode = initialMachineMode }
+                Nothing ->
+                  noCmd model
+
+        TransformMode maybeClickHover ->
+          case maybeClickHover of
+            Nothing ->
+              let move = initClickHover mouseEvent
               in noCmd { model | mode = TransformMode (Just move) }
             Just move ->
               if isValidMoveMachine move model.components
@@ -622,23 +621,16 @@ update msg model =
         _ -> noCmd model
 
     MouseMoved id clientCoord ->
-      let
-        svgCoord = svgOfClientCoord model clientCoord
-        -- _ = Debug.log "msg" (msg, svgCoord)
+      let mouseEvent = { id = id, coord = svgOfClientCoord model clientCoord }
       in
       case model.mode of
-        TransformMode (Just move) ->
-          let
-            --localCoord = localOfGlobalCoord model.components move.clicked.id svgCoord
-            mouseEvent = { id = id, coord = svgCoord }
-          in
-          noCmd { model | mode = TransformMode (Just { move | hovering = mouseEvent }) }
-        MachineMode (Just previous) ->
-          let
-            localCoord = localOfGlobalCoord model.components previous.clicked.id svgCoord
-            mouseEvent = { id = id, coord = localCoord }
-          in
-          noCmd { model | mode = MachineMode (Just { previous | hovering = mouseEvent }) }
+        TransformMode (Just clickHover) ->
+          let clickHover_ = { clickHover | hovering = mouseEvent }
+          in noCmd { model | mode = TransformMode (Just clickHover_) }
+
+        MachineMode (Just clickHover) ->
+          let clickHover_ = { clickHover | hovering = mouseEvent }
+          in noCmd { model | mode = MachineMode (Just clickHover_) }
 
         _ -> noCmd model
 
@@ -713,7 +705,11 @@ isValidNewMachine { clicked, hovering } components =
       (\id machine transform ->
         Maybe.andThen
           (\inside ->
-            let rect = { position = transform.translate, size = machine.size }
+            let
+              rect =
+                { position = globalOfLocalCoord components id { x = 0, y = 0 }
+                , size = machine.size
+                }
             in
             if insideBB newRect rect
             then Just (Set.insert id inside)
@@ -753,7 +749,8 @@ drawSvg model =
             |> (if isValidMoveMachine move model.components then identity else setInvalid move.clicked.id)
         MachineMode (Just previous) ->
           let
-            rect = rectOfCoords previous.clicked.coord previous.hovering.coord
+            toLocal = localOfGlobalCoord model.components previous.clicked.id
+            rect = rectOfCoords (toLocal previous.clicked.coord) (toLocal previous.hovering.coord)
             transform = emptyTransform rect.position
             machine = emptyMachine rect.size
           in
