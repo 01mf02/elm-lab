@@ -13,11 +13,13 @@ import Svg.Events as SE
 import Dict.Extra as DictE
 import Maybe.Extra as MaybeE
 
+import Components exposing (..)
 import Coord exposing (SVGCoord)
 import Ctm exposing (Ctm)
 import CssPropPort
-import ScreenCtmPort
+import Machine exposing (..)
 import Rect exposing (SVGRect, Rectangular, SVGSize)
+import ScreenCtmPort
 import Transform exposing (Transform, rootTransformId, setParentChild, reorientParentChild)
 
 
@@ -35,7 +37,6 @@ type Pipe = Pipe GMachine
 type alias Socket = Maybe Pipe
 
 type alias Arity = Int
-type alias ConstrName = String
 
 type Machine
   = Abs AbsInfo Socket
@@ -49,28 +50,6 @@ type alias GMachine =
 
 type alias AbsInfo =
   { floating : List GMachine
-  }
-
-type alias EntityId = Int
-
-type ConnectionEndpoint
-  = Output EntityId
-  | Input EntityId Int
-
-type alias Connection =
-  { from : ConnectionEndpoint
-  , to : ConnectionEndpoint
-  }
-
-type MachineType
-  = TConstr ConstrName
-  | TAbs
-  | TReference String
-
-type alias EMachine =
-  { inputs : List (Maybe EntityId)
-  , machineType : MachineType
-  , size : SVGSize
   }
 
 addMachine : EMachine -> Transform -> Components -> (Components, EntityId)
@@ -92,15 +71,6 @@ addConnection connection components =
   )
 
 
-type alias Components =
-  { nextId : EntityId
-  , names : Dict EntityId String
-  , machines : Dict EntityId EMachine
-  , connections : Dict EntityId Connection
-  , transforms : Dict EntityId Transform
-  , svgClasses : Dict EntityId String
-  , invalids : Set EntityId
-  }
 
 foldl : (EntityId -> a -> b -> b) -> b -> Dict EntityId a -> b
 foldl =
