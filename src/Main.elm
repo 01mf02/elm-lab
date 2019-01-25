@@ -59,57 +59,6 @@ type alias AbsInfo =
   }
 
 
-{-
-unsetParent : EntityId -> Components -> Components
-unsetParent childId components =
-  let
-    maybeParentId = Dict.get childId components.transforms |> Maybe.andThen .parent
-    removeChild parent = { parent | children = Set.remove childId parent.children }
-    removeParent child = { child | parent = Nothing }
-    updateTransforms =
-      MaybeE.unwrap identity (\ parentId -> Dict.update parentId (Maybe.map removeChild)) maybeParentId
-        >> Dict.update childId (Maybe.map removeParent)
-  in
-  { components | transforms = updateTransforms components.transforms }
--}
-
-
-
-{-
-transformCtm transform =
-  Ctm.translationMatrix transform.position
-
-getCtm : EntityId -> Components -> Ctm
-getCtm id components =
-  map2
-    (\machine transform ->
-      case machine.parent of
-        Just parentId -> Ctm.multiply (getCtm parentId components) (Ctm.translationMatrix transform.position)
-        Nothing -> Ctm.unit
-    )
-    id components.machines components.transforms
-    |> Maybe.withDefault Ctm.unit
--}
-
-
-{-
-findSmallestMachineContaining : SVGCoord -> Set EntityId -> Components -> Maybe EntityId
-findSmallestMachineContaining coord among components =
-  foldl2
-    (\id machine transform maybeAcc ->
-      case maybeAcc of
-        Just _ -> maybeAcc
-        Nothing ->
-          if coordInRect transform coord
-          then
-           findSmallestMachineContaining (transformCoord transform coord) machine.children components
-             |> Maybe.withDefault id |> Just
-          else Nothing
-    )
-    Nothing (DictE.keepOnly among components.machines) components.transforms
--}
-
-
 testComponents : Components
 testComponents =
   initialComponents
