@@ -8,6 +8,7 @@ import Svg.Attributes as SA
 import Svg.Events as SE
 
 import Dict.Extra as DictE
+import Geometry.Svg as Svg
 
 import Components exposing (..)
 import Coord
@@ -64,11 +65,10 @@ drawEMachine : Components -> EntityId -> EMachine -> Transform -> Svg Msg
 drawEMachine components id machine transform =
   let
     groupAttributes =
-      [ SA.transform ("translate" ++ Coord.toString transform.translate) ]
-      ++
       (Dict.get id components.svgClasses |> Maybe.map (SA.class >> List.singleton) |> Maybe.withDefault [])
   in
-  Svg.g groupAttributes
+  Svg.placeIn transform.frame
+  <| Svg.g groupAttributes
     <| (::) (drawMachineContour id machine)
     <| (if Set.member id components.invalids then (::) (drawMachineStrikethrough machine) else identity)
     <| drawEMachines components
