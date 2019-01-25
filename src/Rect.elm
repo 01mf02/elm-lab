@@ -2,6 +2,12 @@ module Rect exposing (..)
 
 import Svg
 import Svg.Attributes as SA
+import Geometry.Svg as Svg
+
+import Point2d
+import Vector2d
+import Rectangle2d
+import BoundingBox2d
 
 import Coord exposing (SVGCoord)
 
@@ -15,56 +21,33 @@ type alias SVGSize =
   , height : Float
   }
 
+svgSizeOfDimensions ( width, height ) = SVGSize width height
+
 type alias Rectangular a
   = { a | position : SVGCoord, size : SVGSize }
 
-centerAt : SVGCoord -> SVGSize -> SVGRect
-centerAt { x, y } size =
-  { position =
-      { x = x - size.width/2
-      , y = y - size.height/2
-      }
-  , size = size
+fromRectangle2d rect =
+  { position = Coord.fromPoint2d (Rectangle2d.bottomLeftVertex rect)
+  , size = svgSizeOfDimensions (Rectangle2d.dimensions rect)
   }
 
-coordIn : SVGRect -> SVGCoord -> Bool
-coordIn rect coord =
-  coord.x > rect.position.x &&
-  coord.x < rect.position.x + rect.size.width &&
-  coord.y > rect.position.y &&
-  coord.y < rect.position.y + rect.size.height
+toRectangle2d { position, size } =
+  let pos = Coord.toPoint2d position
+      off = Vector2d.fromComponents ( size.width, size.height )
+  in Rectangle2d.from pos (Point2d.translateBy off pos)
 
 fromCoords : SVGCoord -> SVGCoord -> SVGRect
 fromCoords c1 c2 =
-  let
-    minMax x y =
-      if x < y then (x, y) else (y, x)
-    (xmin, xmax) = minMax c1.x c2.x
-    (ymin, ymax) = minMax c1.y c2.y
-  in
-  { position = { x = xmin, y = ymin }
-  , size = { width = xmax - xmin, height = ymax - ymin }
-  }
+  Rectangle2d.from (Coord.toPoint2d c1) (Coord.toPoint2d c2) |> fromRectangle2d
 
-noOverlap : Rectangular a -> Rectangular b -> Bool
+noOverlap : SVGRect -> SVGRect -> Bool
 noOverlap bb1 bb2 =
-     bb1.position.x + bb1.size.width  < bb2.position.x
-  || bb2.position.x + bb2.size.width  < bb1.position.x
-  || bb1.position.y + bb1.size.height < bb2.position.y
-  || bb2.position.y + bb2.size.height < bb1.position.y
+  not <| BoundingBox2d.intersects (Rectangle2d.boundingBox (toRectangle2d bb1)) (Rectangle2d.boundingBox (toRectangle2d bb2))
 
-inside : Rectangular a -> Rectangular b -> Bool
+inside : SVGRect -> SVGRect -> Bool
 inside bbOut bbIn =
-  bbOut.position.x < bbIn.position.x &&
-  bbOut.position.y < bbIn.position.y &&
-  bbOut.position.x + bbOut.size.width  > bbIn.position.x + bbIn.size.width &&
-  bbOut.position.y + bbOut.size.height > bbIn.position.y + bbIn.size.height
+  BoundingBox2d.isContainedIn (Rectangle2d.boundingBox (toRectangle2d bbOut)) (Rectangle2d.boundingBox (toRectangle2d bbIn))
 
-svgAttributes : Rectangular a -> List (Svg.Attribute msg)
-svgAttributes { position, size } =
-  [ SA.x (String.fromFloat position.x)
-  , SA.y (String.fromFloat position.y)
-  , SA.width (String.fromFloat size.width)
-  , SA.height (String.fromFloat size.height)
-  ]
-
+render : List (Svg.Attribute msg) -> Rectangular a -> Svg.Svg msg
+render attributes =
+  toRectangle2d >> Rectangle2d.toPolygon >> Svg.polygon2d attributes

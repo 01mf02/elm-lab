@@ -27,9 +27,9 @@ drawMachineContour id machine =
       , SE.on "click" <| JD.map (Clicked id) <| Coord.pageCoordDecoder
       , SE.on "mousemove" <| JD.map (MouseMoved id) <| Coord.pageCoordDecoder
       ]
-      ++ Rect.svgAttributes { position = { x = 0, y = 0 }, size = machine.size }
+    rect = { position = { x = 0, y = 0 }, size = machine.size }
   in
-  Svg.rect attributes [ ]
+  Rect.render attributes rect
 
 drawMachineStrikethrough machine =
   drawStrikethrough

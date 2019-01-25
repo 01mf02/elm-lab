@@ -458,7 +458,7 @@ drawGMachine machine =
 
       Svg.g [ SA.class "gmachine" ]
         ([ drawSocket socket
-        , Svg.rect (SA.class "machine-contour" :: SA.clipPath clipPath :: Rect.svgAttributes machine) []
+        , Rect.render [SA.class "machine-contour", SA.clipPath clipPath] machine
         ] ++ List.map drawGMachine floating)
     _ -> Debug.todo "draw"
 
@@ -469,9 +469,10 @@ drawBackground id =
      [ SE.on "click" <| JD.map (Pointer.Clicked id) <| Coord.pageCoordDecoder
      , SE.on "mousemove" <| JD.map (Pointer.MouseMoved id) <| Coord.pageCoordDecoder
      , SA.id "background"
-     ] ++ Rect.svgAttributes { position = { x = 0, y = 0 }, size = { width = 800, height = 600 } }
+     ]
+    rect = { position = { x = 0, y = 0 }, size = { width = 800, height = 600 } }
   in
-    Svg.rect attributes [] |> Svg.map PointerMsg
+    Rect.render attributes rect |> Svg.map PointerMsg
 
 view : Model -> Html Msg
 view model =
