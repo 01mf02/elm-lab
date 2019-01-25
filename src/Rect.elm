@@ -40,14 +40,6 @@ fromCoords : SVGCoord -> SVGCoord -> SVGRect
 fromCoords c1 c2 =
   Rectangle2d.from (Coord.toPoint2d c1) (Coord.toPoint2d c2) |> fromRectangle2d
 
-noOverlap : SVGRect -> SVGRect -> Bool
-noOverlap bb1 bb2 =
-  not <| BoundingBox2d.intersects (Rectangle2d.boundingBox (toRectangle2d bb1)) (Rectangle2d.boundingBox (toRectangle2d bb2))
-
-inside : SVGRect -> SVGRect -> Bool
-inside bbOut bbIn =
-  BoundingBox2d.isContainedIn (Rectangle2d.boundingBox (toRectangle2d bbOut)) (Rectangle2d.boundingBox (toRectangle2d bbIn))
-
 render : List (Svg.Attribute msg) -> Rectangular a -> Svg.Svg msg
 render attributes =
   toRectangle2d >> Rectangle2d.toPolygon >> Svg.polygon2d attributes
