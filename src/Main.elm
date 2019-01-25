@@ -244,7 +244,7 @@ svgOfClientCoord { screenCtm } =
 
 applyMove : ClickHover -> Components -> Components
 applyMove move components =
-  let offset = Vector2d.from (Coord.toPoint2d move.clicked.coord) (Coord.toPoint2d move.hovering.coord) |> Coord.fromVector2d
+  let offset = Vector2d.from (Coord.toPoint2d move.clicked.coord) (Coord.toPoint2d move.hovering.coord)
   in Transform.map (Transform.translateBy offset) move.clicked.id components
 
 -- TODO: detect when pointer is on root plane and
@@ -272,8 +272,8 @@ isValidMoveMachine { clicked, hovering } components =
       in
       if BoundingBox2d.isContainedIn hoveringRect clickedRect
       then
-        foldl2
-          (\id machine transform sofar ->
+        Dict.foldl
+          (\id machine sofar ->
             if sofar
             then
               let
@@ -284,7 +284,7 @@ isValidMoveMachine { clicked, hovering } components =
               in
               id == clicked.id || not (BoundingBox2d.intersects clickedRect rect)
             else False
-          ) True hoveringMachines components.transforms
+          ) True hoveringMachines
       else
         False
     )
@@ -298,31 +298,31 @@ isValidNewMachine { clicked, hovering } components =
   if clicked.id == hovering.id
   then
     let
-      newRect = Rect.fromCoords clicked.coord hovering.coord
+      newRect = Rectangle2d.from (Coord.toPoint2d clicked.coord) (Coord.toPoint2d hovering.coord) |> Rectangle2d.boundingBox
       clickedChildren =
         Dict.get clicked.id components.transforms
           |> Maybe.map .children
           |> Maybe.withDefault Set.empty
       childMachines = DictE.keepOnly clickedChildren components.machines
     in
-    foldl2
-      (\id machine transform ->
+    Dict.foldl
+      (\id machine ->
         Maybe.andThen
           (\inside ->
             let
               rect =
-                { position = Transform.toGlobal components id { x = 0, y = 0 }
-                , size = machine.size
-                }
+                machine.rectangle
+                  |> Rectangle2d.placeIn (Transform.placeInRoot components id)
+                  |> Rectangle2d.boundingBox
             in
-            if Rect.inside newRect rect
+            if BoundingBox2d.isContainedIn newRect rect
             then Just (Set.insert id inside)
             else
-              if Rect.noOverlap newRect rect
-              then Just inside
-              else Nothing
+              if BoundingBox2d.intersects newRect rect
+              then Nothing
+              else Just inside
           )
-      ) (Just Set.empty) childMachines components.transforms
+      ) (Just Set.empty) childMachines
   else
     Nothing
 

@@ -41,10 +41,10 @@ map fn id components =
     | transforms = Dict.update id (Maybe.map fn) components.transforms
   }
 
-translateBy : SVGCoord -> Transform -> Transform
+translateBy : Vector2d -> Transform -> Transform
 translateBy offset transform =
   { transform
-    | frame = Frame2d.translateBy (Coord.toVector2d offset) transform.frame
+    | frame = Frame2d.translateBy offset transform.frame
   }
 
 transformFrom : Transforms a -> EntityId -> EntityId -> SVGCoord -> SVGCoord
