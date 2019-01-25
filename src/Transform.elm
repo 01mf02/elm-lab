@@ -51,6 +51,9 @@ transformFrom : Transforms a -> EntityId -> EntityId -> SVGCoord -> SVGCoord
 transformFrom components from to =
   toGlobal components from >> toLocal components to
 
+placeInRoot : Transforms a -> EntityId -> Frame2d
+placeInRoot components id =
+  List.foldr (\transform frame -> Frame2d.placeIn frame transform.frame) Frame2d.atOrigin (transformTrail components id)
 
 -- transformations of more top-level machines come first
 transformTrail : Transforms a -> EntityId -> List Transform
@@ -75,7 +78,6 @@ transformCoord transform =
 transformInverse : Transform -> SVGCoord -> SVGCoord
 transformInverse transform =
   Coord.toPoint2d >> Point2d.relativeTo transform.frame >> Coord.fromPoint2d
-
 
 toLocal : Transforms a -> EntityId -> SVGCoord -> SVGCoord
 toLocal components id coord =

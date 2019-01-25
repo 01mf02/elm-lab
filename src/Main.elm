@@ -12,7 +12,10 @@ import Svg.Events as SE
 
 import Dict.Extra as DictE
 import Maybe.Extra as MaybeE
+import BoundingBox2d
+import Frame2d
 import Point2d
+import Rectangle2d
 import Vector2d
 
 import Components exposing (..)
@@ -252,21 +255,22 @@ isValidMoveMachine { clicked, hovering } components =
     (\clickedMachine clickedTransform hoveringMachine ->
       let
         hoveringRect =
-          { position = Transform.toGlobal components hovering.id { x = 0, y = 0 }
-          , size = hoveringMachine.size
-          }
+          hoveringMachine.rectangle
+            |> Rectangle2d.placeIn (Transform.placeInRoot components hovering.id)
+            |> Rectangle2d.boundingBox
         offset = Vector2d.from (Coord.toPoint2d clicked.coord) (Coord.toPoint2d hovering.coord)
         clickedRect =
-          { position = Transform.toGlobal components clicked.id { x = 0, y = 0 } |> Coord.toPoint2d |> Point2d.translateBy offset |> Coord.fromPoint2d
-          , size = clickedMachine.size
-          }
+          clickedMachine.rectangle
+            |> Rectangle2d.placeIn (Transform.placeInRoot components clicked.id)
+            |> Rectangle2d.translateBy offset
+            |> Rectangle2d.boundingBox
         hoveringChildren =
           Dict.get hovering.id components.transforms
             |> Maybe.map .children
             |> Maybe.withDefault Set.empty
         hoveringMachines = DictE.keepOnly hoveringChildren components.machines
       in
-      if Rect.inside hoveringRect clickedRect
+      if BoundingBox2d.isContainedIn hoveringRect clickedRect
       then
         foldl2
           (\id machine transform sofar ->
@@ -274,11 +278,11 @@ isValidMoveMachine { clicked, hovering } components =
             then
               let
                 rect =
-                  { position = Transform.toGlobal components id { x = 0, y = 0 }
-                  , size = machine.size
-                  }
+                  machine.rectangle
+                    |> Rectangle2d.placeIn (Transform.placeInRoot components id)
+                    |> Rectangle2d.boundingBox
               in
-              id == clicked.id || Rect.noOverlap clickedRect rect
+              id == clicked.id || not (BoundingBox2d.intersects clickedRect rect)
             else False
           ) True hoveringMachines components.transforms
       else
