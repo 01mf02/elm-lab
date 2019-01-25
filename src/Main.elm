@@ -12,6 +12,8 @@ import Svg.Events as SE
 
 import Dict.Extra as DictE
 import Maybe.Extra as MaybeE
+import Point2d
+import Vector2d
 
 import Components exposing (..)
 import Coord exposing (SVGCoord)
@@ -290,7 +292,7 @@ svgOfClientCoord { screenCtm } =
 
 applyMove : ClickHover -> Components -> Components
 applyMove move components =
-  let offset = Coord.subtract move.hovering.coord move.clicked.coord
+  let offset = Vector2d.from (Coord.toPoint2d move.clicked.coord) (Coord.toPoint2d move.hovering.coord) |> Coord.fromVector2d
   in Transform.map (Transform.translateBy offset) move.clicked.id components
 
 -- TODO: detect when pointer is on root plane and
@@ -304,9 +306,9 @@ isValidMoveMachine { clicked, hovering } components =
           { position = Transform.toGlobal components hovering.id { x = 0, y = 0 }
           , size = hoveringMachine.size
           }
-        offset = Coord.subtract hovering.coord clicked.coord
+        offset = Vector2d.from (Coord.toPoint2d clicked.coord) (Coord.toPoint2d hovering.coord)
         clickedRect =
-          { position = Transform.toGlobal components clicked.id { x = 0, y = 0 } |> Coord.add offset
+          { position = Transform.toGlobal components clicked.id { x = 0, y = 0 } |> Coord.toPoint2d |> Point2d.translateBy offset |> Coord.fromPoint2d
           , size = clickedMachine.size
           }
         hoveringChildren =
