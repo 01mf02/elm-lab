@@ -1,4 +1,4 @@
-port module Main exposing (main)
+module Main exposing (main)
 
 import Browser
 import Browser.Events
@@ -17,10 +17,14 @@ import Components exposing (..)
 import Coord exposing (SVGCoord)
 import Ctm exposing (Ctm)
 import CssPropPort
+import Entity exposing (EntityId)
 import Machine exposing (..)
+import Pointer
 import Rect exposing (SVGRect, Rectangular, SVGSize)
 import ScreenCtmPort
 import Transform exposing (Transform, rootTransformId, setParentChild, reorientParentChild)
+
+import View.Machine exposing (drawEMachine)
 
 
 
@@ -52,157 +56,6 @@ type alias AbsInfo =
   { floating : List GMachine
   }
 
-addMachine : EMachine -> Transform -> Components -> (Components, EntityId)
-addMachine machine transform components =
-  ( { components
-      | nextId = components.nextId + 1
-      , machines = Dict.insert components.nextId machine components.machines
-      , transforms = Dict.insert components.nextId transform components.transforms
-    }
-  , components.nextId
-  )
-
-addConnection connection components =
-  ( { components
-      | nextId = components.nextId + 1
-      , connections = Dict.insert components.nextId connection components.connections
-    }
-  , components.nextId
-  )
-
-
-
-foldl : (EntityId -> a -> b -> b) -> b -> Dict EntityId a -> b
-foldl =
-    Dict.foldl
-
-drawMachineContour : EntityId -> EMachine -> Svg Msg
-drawMachineContour id machine =
-  let
-    attributes =
-      [ SA.class "machine-contour"
-      , SE.on "click" <| JD.map (Clicked id) <| Coord.pageCoordDecoder
-      , SE.on "mousemove" <| JD.map (MouseMoved id) <| Coord.pageCoordDecoder
-      ]
-      ++ Rect.svgAttributes { position = { x = 0, y = 0 }, size = machine.size }
-  in
-  Svg.rect attributes [ ]
-
-drawMachineStrikethrough machine =
-  drawStrikethrough
-    [ SA.class "strikethrough" ]
-    { position = { x = 0, y = 0 }, size = machine.size }
-
-drawStrikethrough : List (Svg.Attribute msg) -> Rectangular a -> Svg msg
-drawStrikethrough attrs { position, size } =
-  let
-    x = position.x
-    y = position.x
-    w = size.width
-    h = size.height
-  in
-  Svg.g attrs
-    [ Svg.line
-        [ SA.x1 (String.fromFloat x)
-        , SA.y1 (String.fromFloat y)
-        , SA.x2 (String.fromFloat (x + w))
-        , SA.y2 (String.fromFloat (y + h))
-        ]
-        []
-    , Svg.line
-        [ SA.x1 (String.fromFloat (x + w))
-        , SA.y1 (String.fromFloat y)
-        , SA.x2 (String.fromFloat x)
-        , SA.y2 (String.fromFloat (y + h))
-        ]
-        []
-    ]
-
-drawEMachine : Components -> EntityId -> EMachine -> Transform -> Svg Msg
-drawEMachine components id machine transform =
-  let
-    groupAttributes =
-      [ SA.transform ("translate" ++ Coord.toString transform.translate) ]
-      ++
-      (Dict.get id components.svgClasses |> Maybe.map (SA.class >> List.singleton) |> Maybe.withDefault [])
-  in
-  Svg.g groupAttributes
-    <| (::) (drawMachineContour id machine)
-    <| (if Set.member id components.invalids then (::) (drawMachineStrikethrough machine) else identity)
-    <| drawEMachines components
-         (DictE.keepOnly transform.children components.machines)
-         components.transforms
-
-drawEMachines : Components -> Dict EntityId EMachine -> Dict EntityId Transform -> List (Svg Msg)
-drawEMachines components =
-  foldl2
-    (\childId childMachine childTransform ->
-      (::) (drawEMachine components childId childMachine childTransform)
-    ) [ ]
-
-{-| Perform inner join on two component dicts
-and aggregate the result. The order matters:
-we get elements from the 1st component dict and
-then inner join with the second component dict
--}
-foldl2 : (EntityId -> a -> b -> c -> c) -> c -> Dict EntityId a -> Dict EntityId b -> c
-foldl2 fn initial_ component1 component2 =
-    Dict.foldl
-        (\uid a ->
-            Maybe.map (fn uid a)
-                (Dict.get uid component2)
-                |> Maybe.withDefault identity
-        )
-        initial_
-        component1
-
-
-foldl3 : (EntityId -> a -> b -> c -> d -> d) -> d -> Dict EntityId a -> Dict EntityId b -> Dict EntityId c -> d
-foldl3 fn initial_ component1 component2 component3 =
-    Dict.foldl
-        (\uid a ->
-            Maybe.map2 (fn uid a)
-                (Dict.get uid component2)
-                (Dict.get uid component3)
-                |> Maybe.withDefault identity
-        )
-        initial_
-        component1
-
-map2 : (a -> b -> c) -> EntityId -> Dict EntityId a -> Dict EntityId b -> Maybe c
-map2 fn id component1 component2 =
-  Dict.get id component1
-    |> Maybe.andThen
-      (\a ->
-        Dict.get id component2
-          |> Maybe.map (\b -> fn a b)
-      )
-
-initialComponents : Components
-initialComponents =
-  { nextId = rootTransformId + 1
-  , names = Dict.empty
-  , machines = Dict.empty
-  , connections = Dict.empty
-  , transforms = Dict.singleton rootTransformId Transform.root
-  , svgClasses = Dict.empty
-  , invalids = Set.empty
-  }
-
-nameEntity : EntityId -> String -> Components -> Components
-nameEntity id name components =
-  { components
-    | names = Dict.insert id name components.names
-  }
-
-setSvgClass : EntityId -> String -> Components -> Components
-setSvgClass id class components =
-  { components
-    | svgClasses = Dict.insert id class components.svgClasses
-  }
-
-
-
 
 {-
 unsetParent : EntityId -> Components -> Components
@@ -218,22 +71,6 @@ unsetParent childId components =
   { components | transforms = updateTransforms components.transforms }
 -}
 
-
-setInvalid : EntityId -> Components -> Components
-setInvalid id components =
-  { components | invalids = Set.insert id components.invalids }
-
--- remove children?
-deleteEntity : EntityId -> Components -> Components
-deleteEntity id components =
-  { nextId = components.nextId
-  , names = Dict.remove id components.names
-  , machines = Dict.remove id components.machines
-  , connections = Dict.remove id components.connections
-  , transforms = Dict.remove id components.transforms
-  , svgClasses = Dict.remove id components.svgClasses
-  , invalids = Set.remove id components.invalids
-  }
 
 
 {-
@@ -269,13 +106,6 @@ findSmallestMachineContaining coord among components =
     )
     Nothing (DictE.keepOnly among components.machines) components.transforms
 -}
-
-emptyMachine : SVGSize -> EMachine
-emptyMachine size =
-  { inputs = []
-  , machineType = TAbs
-  , size = size
-  }
 
 
 testComponents : Components
@@ -334,14 +164,13 @@ type Msg
   = NoOp
   | ModeChanged Mode
   | ScreenCtmGot (Maybe Ctm)
-  | MouseMoved EntityId Coord.ClientCoord
-  | Clicked EntityId Coord.ClientCoord
+  | PointerMsg Pointer.Msg
   | OnAnimationFrameDelta Float
 
 
 svgElementId = "svg"
 
-init : () -> (Model, Cmd Msg)
+init : () -> ( Model, Cmd Msg )
 init _ =
   ( initialModel
   , ScreenCtmPort.request svgElementId
@@ -372,7 +201,7 @@ initialModel =
 noCmd model =
   ( model, Cmd.none )
 
-update : Msg -> Model -> (Model, Cmd Msg)
+update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
   case msg of
     ModeChanged mode ->
@@ -388,7 +217,7 @@ update msg model =
         CssPropPort.set ":root" "--ms-elapsed" (String.fromFloat model.msElapsed)
       )
 
-    Clicked id clientCoord ->
+    PointerMsg (Pointer.Clicked id clientCoord) ->
       let
         svgCoord = svgOfClientCoord model clientCoord
         mouseEvent = { id = id, coord = svgCoord }
@@ -440,7 +269,7 @@ update msg model =
 
         _ -> noCmd model
 
-    MouseMoved id clientCoord ->
+    PointerMsg (Pointer.MouseMoved id clientCoord) ->
       let mouseEvent = { id = id, coord = svgOfClientCoord model clientCoord }
       in
       case model.mode of
@@ -582,6 +411,7 @@ drawSvg model =
     (\id machine transform ->
       (::) (drawEMachine components id machine transform)
     ) [] (DictE.keepOnly rootChildren components.machines) components.transforms
+    |> List.map (Svg.map PointerMsg)
 
 
 machineOutputCoord : GMachine -> SVGCoord
@@ -634,12 +464,12 @@ drawBackground : EntityId -> Svg Msg
 drawBackground id =
   let
     attributes =
-     [ SE.on "click" <| JD.map (Clicked id) <| Coord.pageCoordDecoder
-     , SE.on "mousemove" <| JD.map (MouseMoved id) <| Coord.pageCoordDecoder
+     [ SE.on "click" <| JD.map (Pointer.Clicked id) <| Coord.pageCoordDecoder
+     , SE.on "mousemove" <| JD.map (Pointer.MouseMoved id) <| Coord.pageCoordDecoder
      , SA.id "background"
      ] ++ Rect.svgAttributes { position = { x = 0, y = 0 }, size = { width = 800, height = 600 } }
   in
-    Svg.rect attributes []
+    Svg.rect attributes [] |> Svg.map PointerMsg
 
 view : Model -> Html Msg
 view model =

@@ -15,3 +15,10 @@ type alias EMachine =
   , machineType : MachineType
   , size : SVGSize
   }
+
+emptyMachine : SVGSize -> EMachine
+emptyMachine size =
+  { inputs = []
+  , machineType = TAbs
+  , size = size
+  }
