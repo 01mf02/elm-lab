@@ -12,6 +12,11 @@ import Svg.Events as SE
 
 import Dict.Extra as DictE
 import Maybe.Extra as MaybeE
+import BoundingBox2d
+import Frame2d
+import Point2d
+import Rectangle2d
+import Vector2d
 
 import Components exposing (..)
 import Coord exposing (SVGCoord)
@@ -55,57 +60,6 @@ type alias GMachine =
 type alias AbsInfo =
   { floating : List GMachine
   }
-
-
-{-
-unsetParent : EntityId -> Components -> Components
-unsetParent childId components =
-  let
-    maybeParentId = Dict.get childId components.transforms |> Maybe.andThen .parent
-    removeChild parent = { parent | children = Set.remove childId parent.children }
-    removeParent child = { child | parent = Nothing }
-    updateTransforms =
-      MaybeE.unwrap identity (\ parentId -> Dict.update parentId (Maybe.map removeChild)) maybeParentId
-        >> Dict.update childId (Maybe.map removeParent)
-  in
-  { components | transforms = updateTransforms components.transforms }
--}
-
-
-
-{-
-transformCtm transform =
-  Ctm.translationMatrix transform.position
-
-getCtm : EntityId -> Components -> Ctm
-getCtm id components =
-  map2
-    (\machine transform ->
-      case machine.parent of
-        Just parentId -> Ctm.multiply (getCtm parentId components) (Ctm.translationMatrix transform.position)
-        Nothing -> Ctm.unit
-    )
-    id components.machines components.transforms
-    |> Maybe.withDefault Ctm.unit
--}
-
-
-{-
-findSmallestMachineContaining : SVGCoord -> Set EntityId -> Components -> Maybe EntityId
-findSmallestMachineContaining coord among components =
-  foldl2
-    (\id machine transform maybeAcc ->
-      case maybeAcc of
-        Just _ -> maybeAcc
-        Nothing ->
-          if coordInRect transform coord
-          then
-           findSmallestMachineContaining (transformCoord transform coord) machine.children components
-             |> Maybe.withDefault id |> Just
-          else Nothing
-    )
-    Nothing (DictE.keepOnly among components.machines) components.transforms
--}
 
 
 testComponents : Components
@@ -290,7 +244,7 @@ svgOfClientCoord { screenCtm } =
 
 applyMove : ClickHover -> Components -> Components
 applyMove move components =
-  let offset = Coord.subtract move.hovering.coord move.clicked.coord
+  let offset = Vector2d.from (Coord.toPoint2d move.clicked.coord) (Coord.toPoint2d move.hovering.coord)
   in Transform.map (Transform.translateBy offset) move.clicked.id components
 
 -- TODO: detect when pointer is on root plane and
@@ -301,35 +255,36 @@ isValidMoveMachine { clicked, hovering } components =
     (\clickedMachine clickedTransform hoveringMachine ->
       let
         hoveringRect =
-          { position = Transform.toGlobal components hovering.id { x = 0, y = 0 }
-          , size = hoveringMachine.size
-          }
-        offset = Coord.subtract hovering.coord clicked.coord
+          hoveringMachine.rectangle
+            |> Rectangle2d.placeIn (Transform.placeInRoot components hovering.id)
+            |> Rectangle2d.boundingBox
+        offset = Vector2d.from (Coord.toPoint2d clicked.coord) (Coord.toPoint2d hovering.coord)
         clickedRect =
-          { position = Transform.toGlobal components clicked.id { x = 0, y = 0 } |> Coord.add offset
-          , size = clickedMachine.size
-          }
+          clickedMachine.rectangle
+            |> Rectangle2d.placeIn (Transform.placeInRoot components clicked.id)
+            |> Rectangle2d.translateBy offset
+            |> Rectangle2d.boundingBox
         hoveringChildren =
           Dict.get hovering.id components.transforms
             |> Maybe.map .children
             |> Maybe.withDefault Set.empty
         hoveringMachines = DictE.keepOnly hoveringChildren components.machines
       in
-      if Rect.inside hoveringRect clickedRect
+      if BoundingBox2d.isContainedIn hoveringRect clickedRect
       then
-        foldl2
-          (\id machine transform sofar ->
+        Dict.foldl
+          (\id machine sofar ->
             if sofar
             then
               let
                 rect =
-                  { position = Transform.toGlobal components id { x = 0, y = 0 }
-                  , size = machine.size
-                  }
+                  machine.rectangle
+                    |> Rectangle2d.placeIn (Transform.placeInRoot components id)
+                    |> Rectangle2d.boundingBox
               in
-              id == clicked.id || Rect.noOverlap clickedRect rect
+              id == clicked.id || not (BoundingBox2d.intersects clickedRect rect)
             else False
-          ) True hoveringMachines components.transforms
+          ) True hoveringMachines
       else
         False
     )
@@ -343,31 +298,31 @@ isValidNewMachine { clicked, hovering } components =
   if clicked.id == hovering.id
   then
     let
-      newRect = Rect.fromCoords clicked.coord hovering.coord
+      newRect = Rectangle2d.from (Coord.toPoint2d clicked.coord) (Coord.toPoint2d hovering.coord) |> Rectangle2d.boundingBox
       clickedChildren =
         Dict.get clicked.id components.transforms
           |> Maybe.map .children
           |> Maybe.withDefault Set.empty
       childMachines = DictE.keepOnly clickedChildren components.machines
     in
-    foldl2
-      (\id machine transform ->
+    Dict.foldl
+      (\id machine ->
         Maybe.andThen
           (\inside ->
             let
               rect =
-                { position = Transform.toGlobal components id { x = 0, y = 0 }
-                , size = machine.size
-                }
+                machine.rectangle
+                  |> Rectangle2d.placeIn (Transform.placeInRoot components id)
+                  |> Rectangle2d.boundingBox
             in
-            if Rect.inside newRect rect
+            if BoundingBox2d.isContainedIn newRect rect
             then Just (Set.insert id inside)
             else
-              if Rect.noOverlap newRect rect
-              then Just inside
-              else Nothing
+              if BoundingBox2d.intersects newRect rect
+              then Nothing
+              else Just inside
           )
-      ) (Just Set.empty) childMachines components.transforms
+      ) (Just Set.empty) childMachines
   else
     Nothing
 
@@ -456,7 +411,7 @@ drawGMachine machine =
 
       Svg.g [ SA.class "gmachine" ]
         ([ drawSocket socket
-        , Svg.rect (SA.class "machine-contour" :: SA.clipPath clipPath :: Rect.svgAttributes machine) []
+        , Rect.render [SA.class "machine-contour", SA.clipPath clipPath] machine
         ] ++ List.map drawGMachine floating)
     _ -> Debug.todo "draw"
 
@@ -467,9 +422,10 @@ drawBackground id =
      [ SE.on "click" <| JD.map (Pointer.Clicked id) <| Coord.pageCoordDecoder
      , SE.on "mousemove" <| JD.map (Pointer.MouseMoved id) <| Coord.pageCoordDecoder
      , SA.id "background"
-     ] ++ Rect.svgAttributes { position = { x = 0, y = 0 }, size = { width = 800, height = 600 } }
+     ]
+    rect = { position = { x = 0, y = 0 }, size = { width = 800, height = 600 } }
   in
-    Svg.rect attributes [] |> Svg.map PointerMsg
+    Rect.render attributes rect |> Svg.map PointerMsg
 
 view : Model -> Html Msg
 view model =

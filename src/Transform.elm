@@ -3,13 +3,17 @@ module Transform exposing (..)
 import Dict exposing (Dict)
 import Set exposing (Set)
 
+import Frame2d exposing (Frame2d)
+import Point2d exposing (Point2d)
+import Vector2d exposing (Vector2d)
+
 import Coord exposing (SVGCoord)
 
 type alias EntityId = Int
 
 -- transformation is by default from local to global (local -> global)
 type alias Transform =
-  { translate : SVGCoord
+  { frame : Frame2d
   , parent : Maybe EntityId
   , children : Set EntityId
   }
@@ -26,7 +30,7 @@ rootTransformId = 0
 
 empty : SVGCoord -> Transform
 empty translate =
-  { translate = translate
+  { frame = Frame2d.atPoint (Coord.toPoint2d translate)
   , parent = Nothing
   , children = Set.empty
   }
@@ -37,16 +41,19 @@ map fn id components =
     | transforms = Dict.update id (Maybe.map fn) components.transforms
   }
 
-translateBy : SVGCoord -> Transform -> Transform
+translateBy : Vector2d -> Transform -> Transform
 translateBy offset transform =
-  { transform | translate = Coord.add offset transform.translate }
-
-
+  { transform
+    | frame = Frame2d.translateBy offset transform.frame
+  }
 
 transformFrom : Transforms a -> EntityId -> EntityId -> SVGCoord -> SVGCoord
 transformFrom components from to =
   toGlobal components from >> toLocal components to
 
+placeInRoot : Transforms a -> EntityId -> Frame2d
+placeInRoot components id =
+  List.foldr (\transform frame -> Frame2d.placeIn frame transform.frame) Frame2d.atOrigin (transformTrail components id)
 
 -- transformations of more top-level machines come first
 transformTrail : Transforms a -> EntityId -> List Transform
@@ -66,12 +73,11 @@ transformTrail components =
 
 transformCoord : Transform -> SVGCoord -> SVGCoord
 transformCoord transform =
-  Coord.add transform.translate
+  Coord.toPoint2d >> Point2d.placeIn transform.frame >> Coord.fromPoint2d
 
 transformInverse : Transform -> SVGCoord -> SVGCoord
-transformInverse transform coord =
-  Coord.subtract coord transform.translate
-
+transformInverse transform =
+  Coord.toPoint2d >> Point2d.relativeTo transform.frame >> Coord.fromPoint2d
 
 toLocal : Transforms a -> EntityId -> SVGCoord -> SVGCoord
 toLocal components id coord =
@@ -95,7 +101,7 @@ reorientParentChild newParentId childId components =
     updateChild transform =
       { transform
         | parent = Just newParentId
-        , translate = transformFrom components oldParentId newParentId transform.translate
+        , frame = transform.frame |> Frame2d.originPoint |> Coord.fromPoint2d |> transformFrom components oldParentId newParentId |> Coord.toPoint2d |> Frame2d.atPoint
       }
     updateTransforms =
       Dict.update oldParentId (Maybe.map removeChild)
