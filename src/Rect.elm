@@ -21,6 +21,10 @@ type alias SVGSize =
   , height : Float
   }
 
+sizeToTuple { width, height } = ( width, height )
+
+sizeFromTuple ( width, height ) = { width = width, height = height }
+
 svgSizeOfDimensions ( width, height ) = SVGSize width height
 
 type alias Rectangular a

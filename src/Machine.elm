@@ -19,8 +19,10 @@ type alias EMachine =
   , size : SVGSize
   }
 
-emptyMachine : SVGSize -> EMachine
-emptyMachine size =
+emptyMachine : ( Float, Float ) -> EMachine
+emptyMachine ( width, height ) =
+  let size = Rect.sizeFromTuple ( width, height )
+  in
   { inputs = []
   , machineType = TAbs
   , rectangle = Rect.toRectangle2d { position = { x = 0, y = 0 }, size = size }

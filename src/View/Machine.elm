@@ -16,7 +16,7 @@ import Entity exposing (..)
 import Machine exposing (..)
 import Pointer exposing (Msg(..))
 import Rect exposing (SVGRect, Rectangular, SVGSize)
-import Transform exposing (Transform, rootTransformId, setParentChild, reorientParentChild)
+import Transform exposing (Transform)
 
 
 drawMachineContour : EntityId -> EMachine -> Svg Msg

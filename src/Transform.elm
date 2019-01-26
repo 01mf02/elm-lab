@@ -3,6 +3,8 @@ module Transform exposing (..)
 import Dict exposing (Dict)
 import Set exposing (Set)
 
+import Maybe.Extra as MaybeE
+
 import Frame2d exposing (Frame2d)
 import Point2d exposing (Point2d)
 import Vector2d exposing (Vector2d)
@@ -23,10 +25,6 @@ type alias Transforms a =
 
 root : Transform
 root = empty { x = 0, y = 0 }
-
--- TODO: move this somewhere else
-rootTransformId : EntityId
-rootTransformId = 0
 
 empty : SVGCoord -> Transform
 empty translate =
@@ -88,37 +86,25 @@ toGlobal components id coord =
   List.foldr transformCoord coord (transformTrail components id)
 
 
-reorientParentChild : EntityId -> EntityId -> Transforms a -> Transforms a
-reorientParentChild newParentId childId components =
+adoptBy : EntityId -> EntityId -> Transforms a -> Transforms a
+adoptBy newParentId childId components =
   let
     maybeChild = Dict.get childId components.transforms
-    oldParentId =
-      maybeChild
-        |> Maybe.andThen .parent
-        |> Maybe.withDefault rootTransformId
+    maybeOldParentId = maybeChild |> Maybe.andThen .parent
+    applyIfOldParent fn = MaybeE.unwrap identity fn maybeOldParentId
     addChild parent = { parent | children = Set.insert childId parent.children }
     removeChild parent = { parent | children = Set.remove childId parent.children }
+    updateFrame =
+      applyIfOldParent (\oldParent -> Frame2d.placeIn (placeInRoot components oldParent))
+        >> Frame2d.relativeTo (placeInRoot components newParentId)
     updateChild transform =
       { transform
         | parent = Just newParentId
-        , frame = transform.frame |> Frame2d.originPoint |> Coord.fromPoint2d |> transformFrom components oldParentId newParentId |> Coord.toPoint2d |> Frame2d.atPoint
+        , frame = updateFrame transform.frame
       }
     updateTransforms =
-      Dict.update oldParentId (Maybe.map removeChild)
+      applyIfOldParent (\oldParentId -> Dict.update oldParentId (Maybe.map removeChild))
         >> Dict.update newParentId (Maybe.map addChild)
         >> Dict.update childId (Maybe.map updateChild)
   in
   { components | transforms = updateTransforms components.transforms }
-
-
-setParentChild : EntityId -> EntityId -> Transforms a -> Transforms a
-setParentChild parentId childId components =
-  let
-    addChild parent = { parent | children = Set.insert childId parent.children }
-    setParent child = { child | parent = Just parentId }
-    updateTransforms =
-      Dict.update parentId (Maybe.map addChild)
-        >> Dict.update childId (Maybe.map setParent)
-  in
-  { components | transforms = updateTransforms components.transforms }
-

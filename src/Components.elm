@@ -6,7 +6,7 @@ import Set exposing (Set)
 import Connection exposing (..)
 import Entity exposing (EntityId)
 import Machine exposing (..)
-import Transform exposing (Transform, rootTransformId, setParentChild, reorientParentChild)
+import Transform exposing (Transform)
 
 type alias Components =
   { nextId : EntityId
@@ -29,6 +29,9 @@ initialComponents =
   , svgClasses = Dict.empty
   , invalids = Set.empty
   }
+
+rootTransformId : EntityId
+rootTransformId = 0
 
 
 foldl : (EntityId -> a -> b -> b) -> b -> Dict EntityId a -> b

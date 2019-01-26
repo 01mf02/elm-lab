@@ -27,7 +27,7 @@ import Machine exposing (..)
 import Pointer
 import Rect exposing (SVGRect, Rectangular, SVGSize)
 import ScreenCtmPort
-import Transform exposing (Transform, rootTransformId, setParentChild, reorientParentChild)
+import Transform exposing (Transform)
 
 import View.Machine exposing (drawEMachine)
 
@@ -66,14 +66,18 @@ testComponents : Components
 testComponents =
   initialComponents
     |> addMachine
-         (emptyMachine { width = 60, height = 60 })
-         (Transform.empty { x = 20, y = 20 })
+         (emptyMachine ( 60, 60 ))
+         (Transform.empty { x = 120, y = 120 })
     |> (\( components, childId ) ->
        addMachine
-         (emptyMachine { width = 300, height = 300 })
+         (emptyMachine ( 300, 300 ))
          (Transform.empty { x = 100, y = 100 })
          components
-         |> (\( components_, parentId ) -> nameEntity parentId "test" components_ |> setParentChild parentId childId |> setParentChild rootTransformId parentId)
+         |> (\( components_, parentId ) ->
+              nameEntity parentId "test" components_
+                |> Transform.adoptBy parentId childId
+                |> Transform.adoptBy rootTransformId parentId
+            )
        )
 
 
@@ -189,15 +193,14 @@ update msg model =
               case isValidNewMachine clickHover model.components of
                 Just inside ->
                   let
-                    toLocal = Transform.toLocal model.components clickHover.hovering.id
-                    rect = Rect.fromCoords (toLocal clickHover.clicked.coord) (toLocal clickHover.hovering.coord)
-                    transform = Transform.empty rect.position
-                    machine = emptyMachine rect.size
+                    rect = Rectangle2d.from (Coord.toPoint2d clickHover.clicked.coord) (Coord.toPoint2d clickHover.hovering.coord)
+                    transform = Transform.empty (Coord.fromPoint2d (Rectangle2d.bottomLeftVertex rect))
+                    machine = emptyMachine (Rectangle2d.dimensions rect)
                     components =
                       addMachine machine transform model.components
                         |> (\(components_, newId) ->
-                             setParentChild id newId components_
-                             |> (\components__ -> Set.foldl (reorientParentChild newId) components__ inside)
+                             Transform.adoptBy id newId components_
+                             |> (\components__ -> Set.foldl (Transform.adoptBy newId) components__ inside)
                            )
                   in
                   noCmd { model | components = components, mode = initialMachineMode }
@@ -216,7 +219,7 @@ update msg model =
                   | mode = initialTransformMode
                   , components =
                       applyMove move model.components
-                        |> reorientParentChild move.hovering.id move.clicked.id
+                        |> Transform.adoptBy move.hovering.id move.clicked.id
                 } |> noCmd
               else
                 noCmd model
@@ -340,17 +343,16 @@ drawSvg model =
             |> (if isValidMoveMachine move model.components then identity else setInvalid move.clicked.id)
         MachineMode (Just previous) ->
           let
-            toLocal = Transform.toLocal model.components previous.clicked.id
-            rect = Rect.fromCoords (toLocal previous.clicked.coord) (toLocal previous.hovering.coord)
-            transform = Transform.empty rect.position
-            machine = emptyMachine rect.size
+            rect = Rectangle2d.from (Coord.toPoint2d previous.clicked.coord) (Coord.toPoint2d previous.hovering.coord)
+            transform = Transform.empty (Coord.fromPoint2d (Rectangle2d.bottomLeftVertex rect))
+            machine = emptyMachine (Rectangle2d.dimensions rect)
           in
             addMachine machine transform model.components
               |> (\( components_, childId ) ->
                    ( setSvgClass childId "creating" components_, childId )
                  )
               |> (\(components_, childId) ->
-                   setParentChild previous.clicked.id childId components_
+                   Transform.adoptBy previous.clicked.id childId components_
                    |> (if isValidNewMachine previous model.components |> MaybeE.isJust then identity else setInvalid childId)
                  )
         _ -> model.components
