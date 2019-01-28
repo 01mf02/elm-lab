@@ -9,12 +9,13 @@ import Svg.Events as SE
 
 import Dict.Extra as DictE
 import Geometry.Svg as Svg
+import LineSegment2d
+import Rectangle2d
 
 import Components exposing (..)
 import Entity exposing (..)
 import Machine exposing (..)
 import Pointer exposing (Msg(..))
-import Rect exposing (SVGRect, Rectangular, SVGSize)
 import Transform exposing (Transform)
 
 
@@ -26,39 +27,18 @@ drawMachineContour id machine =
       , SE.on "click" <| JD.map (Clicked id) <| Pointer.pageCoordDecoder
       , SE.on "mousemove" <| JD.map (MouseMoved id) <| Pointer.pageCoordDecoder
       ]
-    rect = { position = { x = 0, y = 0 }, size = machine.size }
   in
-  Rect.render attributes rect
+  Rectangle2d.toPolygon machine.rectangle |> Svg.polygon2d attributes
 
-drawMachineStrikethrough machine =
-  drawStrikethrough
-    [ SA.class "strikethrough" ]
-    { position = { x = 0, y = 0 }, size = machine.size }
-
-drawStrikethrough : List (Svg.Attribute msg) -> Rectangular a -> Svg msg
-drawStrikethrough attrs { position, size } =
-  let
-    x = position.x
-    y = position.x
-    w = size.width
-    h = size.height
+drawStrikethrough : EMachine -> Svg msg
+drawStrikethrough machine =
+  let v = Rectangle2d.vertices machine.rectangle
   in
-  Svg.g attrs
-    [ Svg.line
-        [ SA.x1 (String.fromFloat x)
-        , SA.y1 (String.fromFloat y)
-        , SA.x2 (String.fromFloat (x + w))
-        , SA.y2 (String.fromFloat (y + h))
-        ]
-        []
-    , Svg.line
-        [ SA.x1 (String.fromFloat (x + w))
-        , SA.y1 (String.fromFloat y)
-        , SA.x2 (String.fromFloat x)
-        , SA.y2 (String.fromFloat (y + h))
-        ]
-        []
+  Svg.g [ SA.class "strikethrough" ]
+    [ Svg.lineSegment2d [] (LineSegment2d.from v.bottomLeft v.topRight)
+    , Svg.lineSegment2d [] (LineSegment2d.from v.bottomRight v.topLeft)
     ]
+
 
 drawEMachine : Components -> EntityId -> EMachine -> Transform -> Svg Msg
 drawEMachine components id machine transform =
@@ -69,7 +49,7 @@ drawEMachine components id machine transform =
   Svg.placeIn transform.frame
   <| Svg.g groupAttributes
     <| (::) (drawMachineContour id machine)
-    <| (if Set.member id components.invalids then (::) (drawMachineStrikethrough machine) else identity)
+    <| (if Set.member id components.invalids then (::) (drawStrikethrough machine) else identity)
     <| drawEMachines components
          (DictE.keepOnly transform.children components.machines)
          components.transforms

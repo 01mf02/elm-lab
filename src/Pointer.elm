@@ -2,25 +2,26 @@ module Pointer exposing (..)
 
 import Json.Decode as JD exposing (Decoder)
 
-import Coord exposing (ClientCoord)
 import Entity exposing (EntityId)
 
-type Msg
-  = MouseMoved EntityId Coord.ClientCoord
-  | Clicked EntityId Coord.ClientCoord
+type alias Coord = ( Int, Int )
 
-clientCoordDecoder : Decoder ClientCoord
+type Msg
+  = MouseMoved EntityId Coord
+  | Clicked EntityId Coord
+
+clientCoordDecoder : Decoder Coord
 clientCoordDecoder =
-  JD.map2 ClientCoord
+  JD.map2 Tuple.pair
     (JD.at [ "clientX" ] JD.int)
     (JD.at [ "clientY" ] JD.int)
 
-pageCoordDecoder : Decoder ClientCoord
+pageCoordDecoder : Decoder Coord
 pageCoordDecoder =
-  JD.map2 ClientCoord
+  JD.map2 Tuple.pair
     (JD.at [ "pageX" ] JD.int)
     (JD.at [ "pageY" ] JD.int)
 
-svgOfClientCoord : Coord.ClientCoord -> ( Float, Float )
-svgOfClientCoord { x, y } =
+svgOfClientCoord : Coord -> ( Float, Float )
+svgOfClientCoord ( x, y ) =
   ( toFloat x, toFloat y )

@@ -9,8 +9,6 @@ import Frame2d exposing (Frame2d)
 import Point2d exposing (Point2d)
 import Vector2d exposing (Vector2d)
 
-import Coord exposing (SVGCoord)
-
 type alias EntityId = Int
 
 -- transformation is by default from local to global (local -> global)
@@ -24,11 +22,8 @@ type alias Transforms a =
   { a | transforms : Dict EntityId Transform }
 
 root : Transform
-root = empty { x = 0, y = 0 }
-
-empty : SVGCoord -> Transform
-empty translate =
-  { frame = Frame2d.atPoint (Coord.toPoint2d translate)
+root =
+  { frame = Frame2d.atPoint Point2d.origin
   , parent = Nothing
   , children = Set.empty
   }
@@ -45,13 +40,11 @@ translateBy offset transform =
     | frame = Frame2d.translateBy offset transform.frame
   }
 
-transformFrom : Transforms a -> EntityId -> EntityId -> SVGCoord -> SVGCoord
-transformFrom components from to =
-  toGlobal components from >> toLocal components to
-
 placeInRoot : Transforms a -> EntityId -> Frame2d
 placeInRoot components id =
-  List.foldr (\transform frame -> Frame2d.placeIn frame transform.frame) Frame2d.atOrigin (transformTrail components id)
+  List.foldr
+    (\transform frame -> Frame2d.placeIn frame transform.frame)
+    Frame2d.atOrigin (transformTrail components id)
 
 -- transformations of more top-level machines come first
 transformTrail : Transforms a -> EntityId -> List Transform
@@ -68,23 +61,6 @@ transformTrail components =
         |> Maybe.withDefault []
   in
   aux []
-
-transformCoord : Transform -> SVGCoord -> SVGCoord
-transformCoord transform =
-  Coord.toPoint2d >> Point2d.placeIn transform.frame >> Coord.fromPoint2d
-
-transformInverse : Transform -> SVGCoord -> SVGCoord
-transformInverse transform =
-  Coord.toPoint2d >> Point2d.relativeTo transform.frame >> Coord.fromPoint2d
-
-toLocal : Transforms a -> EntityId -> SVGCoord -> SVGCoord
-toLocal components id coord =
-  List.foldl transformInverse coord (transformTrail components id)
-
-toGlobal : Transforms a -> EntityId -> SVGCoord -> SVGCoord
-toGlobal components id coord =
-  List.foldr transformCoord coord (transformTrail components id)
-
 
 adoptBy : EntityId -> EntityId -> Transforms a -> Transforms a
 adoptBy newParentId childId components =

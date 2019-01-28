@@ -4,8 +4,6 @@ import Json.Decode as JD exposing (Decoder)
 
 import Point2d
 
-import Coord exposing (SVGCoord)
-
 -- Thanks to Markus Laire for his advice on transforming
 -- client coordinates to SVG coordinates!
 -- <https://discourse.elm-lang.org/t/dispatching-custom-events-only-if-needed/2740>

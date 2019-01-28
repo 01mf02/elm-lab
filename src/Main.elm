@@ -19,16 +19,15 @@ import Rectangle2d
 import Vector2d
 
 import Components exposing (..)
-import Coord
 import Ctm exposing (Ctm)
 import CssPropPort
 import Entity exposing (EntityId)
 import Machine exposing (..)
 import Pointer
-import Rect exposing (SVGRect, Rectangular, SVGSize)
 import ScreenCtmPort
 import Transform exposing (Transform)
 
+import View.Background
 import View.Machine exposing (drawEMachine)
 
 
@@ -66,19 +65,23 @@ type alias AbsInfo =
 
 testComponents : Components
 testComponents =
+  let
+    makeRect c1 c2 =
+      Rectangle2d.from (Point2d.fromCoordinates c1) (Point2d.fromCoordinates c2)
+  in
   initialComponents
     |> addMachine
-         (emptyMachine ( 60, 60 ))
-         (Transform.empty { x = 120, y = 120 })
+         (emptyMachine (makeRect ( 120, 120 ) ( 180, 180 )))
+         Transform.root
     |> (\( components, childId ) ->
        addMachine
-         (emptyMachine ( 300, 300 ))
-         (Transform.empty { x = 100, y = 100 })
+         (emptyMachine (makeRect ( 100, 100 ) ( 400, 400 )))
+         Transform.root
          components
          |> (\( components_, parentId ) ->
               nameEntity parentId "test" components_
-                |> Transform.adoptBy parentId childId
                 |> Transform.adoptBy rootTransformId parentId
+                |> Transform.adoptBy parentId childId
             )
        )
 
@@ -195,10 +198,9 @@ update msg model =
                 Just inside ->
                   let
                     rect = Rectangle2d.from clickHover.clicked.point clickHover.hovering.point
-                    transform = Transform.empty (Coord.fromPoint2d (Rectangle2d.bottomLeftVertex rect))
-                    machine = emptyMachine (Rectangle2d.dimensions rect)
+                    machine = emptyMachine rect
                     components =
-                      addMachine machine transform model.components
+                      addMachine machine Transform.root model.components
                         |> (\(components_, newId) ->
                              Transform.adoptBy id newId components_
                              |> (\components__ -> Set.foldl (Transform.adoptBy newId) components__ inside)
@@ -347,10 +349,9 @@ drawSvg model =
         MachineMode (Just previous) ->
           let
             rect = Rectangle2d.from previous.clicked.point previous.hovering.point
-            transform = Transform.empty (Coord.fromPoint2d (Rectangle2d.bottomLeftVertex rect))
-            machine = emptyMachine (Rectangle2d.dimensions rect)
+            machine = emptyMachine rect
           in
-            addMachine machine transform model.components
+            addMachine machine Transform.root model.components
               |> (\( components_, childId ) ->
                    ( setSvgClass childId "creating" components_, childId )
                  )
@@ -371,6 +372,7 @@ drawSvg model =
     (\id machine transform ->
       (::) (drawEMachine components id machine transform)
     ) [] (DictE.keepOnly rootChildren components.machines) components.transforms
+    |> (::) (View.Background.draw rootTransformId)
     |> List.map (Svg.map PointerMsg)
 
 
@@ -422,18 +424,6 @@ drawGMachine machine =
     _ -> Debug.todo "draw"
 -}
 
-drawBackground : EntityId -> Svg Msg
-drawBackground id =
-  let
-    attributes =
-     [ SE.on "click" <| JD.map (Pointer.Clicked id) <| Pointer.pageCoordDecoder
-     , SE.on "mousemove" <| JD.map (Pointer.MouseMoved id) <| Pointer.pageCoordDecoder
-     , SA.id "background"
-     ]
-    rect = { position = { x = 0, y = 0 }, size = { width = 800, height = 600 } }
-  in
-    Rect.render attributes rect |> Svg.map PointerMsg
-
 view : Model -> Html Msg
 view model =
   H.div []
@@ -447,7 +437,7 @@ view model =
             , SA.viewBox "0 0 800 600"
             , SA.id svgElementId
             ]
-            (drawBackground rootTransformId :: drawSvg model)
+            (drawSvg model)
         ]
     , H.footer []
         [ H.text "Hello World!"
