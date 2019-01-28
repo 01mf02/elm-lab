@@ -11,7 +11,9 @@ import Dict.Extra as DictE
 import Direction2d
 import Geometry.Svg as Svg
 import LineSegment2d
+import Point2d
 import Rectangle2d
+import Vector2d
 
 import Components exposing (..)
 import Entity exposing (..)
@@ -22,16 +24,26 @@ import Transform exposing (Transform)
 drawContour : EMachine -> List (Svg msg)
 drawContour machine =
   let
+    doorLength = 15
     attributes = [ SA.class "contour" ]
     edges = Rectangle2d.edges machine.rectangle
     ( bottomLeftPoint, bottomRightPoint ) = LineSegment2d.endpoints edges.bottom
     bottomDirection = LineSegment2d.direction edges.bottom |> Maybe.withDefault Direction2d.x
     bottomMidPoint = LineSegment2d.midpoint edges.bottom
-    bottomLeftLine = LineSegment2d.from bottomLeftPoint bottomMidPoint
-    bottomRightLine = LineSegment2d.from bottomLeftPoint bottomMidPoint
+    bottomMidPointLeft = Point2d.translateBy (Vector2d.withLength (-doorLength) bottomDirection) bottomMidPoint
+    bottomMidPointRight = Point2d.translateBy (Vector2d.withLength doorLength bottomDirection) bottomMidPoint
+    bottomLeftEdge = LineSegment2d.from bottomLeftPoint bottomMidPointLeft
+    bottomRightEdge = LineSegment2d.from bottomRightPoint bottomMidPointRight
+    bottomLeftDoor =
+      LineSegment2d.from bottomMidPointLeft bottomMidPoint
+        |> LineSegment2d.rotateAround bottomMidPointLeft 45
+    bottomRightDoor =
+      LineSegment2d.from bottomMidPointRight bottomMidPoint
+        |> LineSegment2d.rotateAround bottomMidPointRight (-45)
+
   in
   List.map (Svg.lineSegment2d attributes)
-    [edges.bottom, edges.right, edges.top, edges.left, bottomLeftLine, bottomRightLine]
+    [edges.right, edges.top, edges.left, bottomLeftEdge, bottomLeftDoor, bottomRightEdge, bottomRightDoor]
 
 
 drawBackground machine =
