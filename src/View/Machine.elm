@@ -8,6 +8,7 @@ import Svg.Attributes as SA
 import Svg.Events as SE
 
 import Dict.Extra as DictE
+import Direction2d
 import Geometry.Svg as Svg
 import LineSegment2d
 import Rectangle2d
@@ -23,9 +24,15 @@ drawContour machine =
   let
     attributes = [ SA.class "contour" ]
     edges = Rectangle2d.edges machine.rectangle
+    ( bottomLeftPoint, bottomRightPoint ) = LineSegment2d.endpoints edges.bottom
+    bottomDirection = LineSegment2d.direction edges.bottom |> Maybe.withDefault Direction2d.x
+    bottomMidPoint = LineSegment2d.midpoint edges.bottom
+    bottomLeftLine = LineSegment2d.from bottomLeftPoint bottomMidPoint
+    bottomRightLine = LineSegment2d.from bottomLeftPoint bottomMidPoint
   in
   List.map (Svg.lineSegment2d attributes)
-    [edges.bottom, edges.right, edges.top, edges.left]
+    [edges.bottom, edges.right, edges.top, edges.left, bottomLeftLine, bottomRightLine]
+
 
 drawBackground machine =
   Rectangle2d.toPolygon machine.rectangle |>
