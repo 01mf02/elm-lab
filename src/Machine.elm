@@ -12,7 +12,7 @@ type MachineType
   | TReference String
 
 type alias EMachine =
-  { inputs : List (Maybe EntityId)
+  { inputs : List (Float, Maybe EntityId)
   , machineType : MachineType
   , rectangle : Rectangle2d
   }

@@ -7,6 +7,7 @@ import Svg exposing (Svg)
 import Svg.Attributes as SA
 import Svg.Events as SE
 
+import Circle2d
 import Dict.Extra as DictE
 import Direction2d
 import Geometry.Svg as Svg
@@ -50,6 +51,13 @@ drawBackground machine =
   Rectangle2d.toPolygon machine.rectangle |>
     Svg.polygon2d [ SA.class "background" ]
 
+drawInputs machine =
+  List.map
+    (\(x, _) ->
+      Circle2d.withRadius 10 (Point2d.fromCoordinates ( x, 0 ))
+        |> Svg.circle2d [ SA.class "input" ]
+    ) machine.inputs
+
 drawMachine : EntityId -> EMachine -> Svg Msg
 drawMachine id machine =
   let
@@ -59,7 +67,7 @@ drawMachine id machine =
       , SA.class "machine"
       ]
   in
-  Svg.g events (drawBackground machine :: drawContour machine)
+  Svg.g events (drawBackground machine :: (drawContour machine ++ drawInputs machine))
 
 
 drawStrikethrough : EMachine -> Svg msg

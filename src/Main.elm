@@ -188,6 +188,27 @@ update msg model =
               else
                 noCmd model
 
+        InputMode ->
+          let
+            components = model.components
+
+            insertInput machine =
+              let
+                transform = Transform.placeInRoot components mouseEvent.id
+                clickedIn = Point2d.relativeTo transform mouseEvent.point
+                newInput = ( Point2d.xCoordinate clickedIn, Nothing )
+              in
+              { machine | inputs = newInput :: machine.inputs |> List.sortBy Tuple.first }
+
+          in
+          { model
+            | components =
+                { components
+                  | machines =
+                      Dict.update id (Maybe.map insertInput) components.machines
+                }
+          } |> noCmd
+
         _ -> noCmd model
 
     PointerMsg (Pointer.MouseMoved id clientCoord) ->
