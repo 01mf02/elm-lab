@@ -18,17 +18,30 @@ import Machine exposing (..)
 import Pointer exposing (Msg(..))
 import Transform exposing (Transform)
 
-
-drawMachineContour : EntityId -> EMachine -> Svg Msg
-drawMachineContour id machine =
+drawContour : EMachine -> List (Svg msg)
+drawContour machine =
   let
-    attributes =
-      [ SA.class "machine-contour"
-      , SE.on "click" <| JD.map (Clicked id) <| Pointer.pageCoordDecoder
+    attributes = [ SA.class "contour" ]
+    edges = Rectangle2d.edges machine.rectangle
+  in
+  List.map (Svg.lineSegment2d attributes)
+    [edges.bottom, edges.right, edges.top, edges.left]
+
+drawBackground machine =
+  Rectangle2d.toPolygon machine.rectangle |>
+    Svg.polygon2d [ SA.class "background" ]
+
+drawMachine : EntityId -> EMachine -> Svg Msg
+drawMachine id machine =
+  let
+    events =
+      [ SE.on "click" <| JD.map (Clicked id) <| Pointer.pageCoordDecoder
       , SE.on "mousemove" <| JD.map (MouseMoved id) <| Pointer.pageCoordDecoder
+      , SA.class "machine"
       ]
   in
-  Rectangle2d.toPolygon machine.rectangle |> Svg.polygon2d attributes
+  Svg.g events (drawBackground machine :: drawContour machine)
+
 
 drawStrikethrough : EMachine -> Svg msg
 drawStrikethrough machine =
@@ -48,7 +61,7 @@ drawEMachine components id machine transform =
   in
   Svg.placeIn transform.frame
   <| Svg.g groupAttributes
-    <| (::) (drawMachineContour id machine)
+    <| (::) (drawMachine id machine)
     <| (if Set.member id components.invalids then (::) (drawStrikethrough machine) else identity)
     <| drawEMachines components
          (DictE.keepOnly transform.children components.machines)
