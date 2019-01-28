@@ -32,22 +32,3 @@ type alias SVGCoord =
   { x : Float
   , y : Float
   }
-
-svgOfClientCoord : ClientCoord -> SVGCoord
-svgOfClientCoord { x, y } =
-  { x = toFloat x
-  , y = toFloat y
-  }
-
-
-clientCoordDecoder : Decoder ClientCoord
-clientCoordDecoder =
-  JD.map2 ClientCoord
-    (JD.at [ "clientX" ] JD.int)
-    (JD.at [ "clientY" ] JD.int)
-
-pageCoordDecoder : Decoder ClientCoord
-pageCoordDecoder =
-  JD.map2 ClientCoord
-    (JD.at [ "pageX" ] JD.int)
-    (JD.at [ "pageY" ] JD.int)

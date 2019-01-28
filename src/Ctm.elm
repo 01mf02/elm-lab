@@ -38,10 +38,8 @@ unit =
 
 {-| See <https://developer.mozilla.org/en-US/docs/Web/SVG/Attribute/transform>
 -}
-matrixTransform : Ctm -> SVGCoord -> SVGCoord
-matrixTransform c p =
-  let ( x, y ) = Point2d.coordinates (Coord.toPoint2d p)
-  in
-  { x = c.a * x + c.c * y + c.e
-  , y = c.b * x + c.d * y + c.f
-  }
+matrixTransform : Ctm -> ( Float, Float ) -> ( Float, Float )
+matrixTransform c ( x, y ) =
+  ( c.a * x + c.c * y + c.e
+  , c.b * x + c.d * y + c.f
+  )

@@ -14,12 +14,12 @@ import Dict.Extra as DictE
 import Maybe.Extra as MaybeE
 import BoundingBox2d
 import Frame2d
-import Point2d
+import Point2d exposing (Point2d)
 import Rectangle2d
 import Vector2d
 
 import Components exposing (..)
-import Coord exposing (SVGCoord)
+import Coord
 import Ctm exposing (Ctm)
 import CssPropPort
 import Entity exposing (EntityId)
@@ -42,6 +42,7 @@ main =
     }
 
 
+{-
 type Pipe = Pipe GMachine
 type alias Socket = Maybe Pipe
 
@@ -60,6 +61,7 @@ type alias GMachine =
 type alias AbsInfo =
   { floating : List GMachine
   }
+-}
 
 
 testComponents : Components
@@ -83,7 +85,7 @@ testComponents =
 
 type alias Model =
   { mode : Mode
-  , machine : GMachine
+--  , machine : GMachine
   , components : Components
   , screenCtm : Ctm
   , msElapsed : Float
@@ -91,7 +93,7 @@ type alias Model =
 
 type alias MouseEvent =
   { id : EntityId
-  , coord : SVGCoord
+  , point : Point2d
   }
 
 type alias ClickHover =
@@ -134,6 +136,7 @@ init _ =
   , ScreenCtmPort.request svgElementId
   )
 
+{-
 initialMachine =
   { position = { x = 100, y = 100 }
   , size = { width = 100, height = 100 }
@@ -147,10 +150,11 @@ initialMachine =
          }
   , sockets = []
   }
+-}
 
 initialModel =
   { mode = DeleteMode
-  , machine = initialMachine
+--  , machine = initialMachine
   , components = testComponents
   , screenCtm = Ctm.unit
   , msElapsed = 0
@@ -176,10 +180,7 @@ update msg model =
       )
 
     PointerMsg (Pointer.Clicked id clientCoord) ->
-      let
-        svgCoord = svgOfClientCoord model clientCoord
-        mouseEvent = { id = id, coord = svgCoord }
-        _ = Debug.log "msg" (msg, svgCoord)
+      let mouseEvent = { id = id, point = svgOfClientCoord model clientCoord }
       in
       case model.mode of
         DeleteMode -> noCmd { model | components = deleteEntity id model.components }
@@ -193,7 +194,7 @@ update msg model =
               case isValidNewMachine clickHover model.components of
                 Just inside ->
                   let
-                    rect = Rectangle2d.from (Coord.toPoint2d clickHover.clicked.coord) (Coord.toPoint2d clickHover.hovering.coord)
+                    rect = Rectangle2d.from clickHover.clicked.point clickHover.hovering.point
                     transform = Transform.empty (Coord.fromPoint2d (Rectangle2d.bottomLeftVertex rect))
                     machine = emptyMachine (Rectangle2d.dimensions rect)
                     components =
@@ -227,7 +228,7 @@ update msg model =
         _ -> noCmd model
 
     PointerMsg (Pointer.MouseMoved id clientCoord) ->
-      let mouseEvent = { id = id, coord = svgOfClientCoord model clientCoord }
+      let mouseEvent = { id = id, point = svgOfClientCoord model clientCoord }
       in
       case model.mode of
         TransformMode (Just clickHover) ->
@@ -243,11 +244,13 @@ update msg model =
     _ -> let _ = Debug.log "msg" msg in noCmd model
 
 svgOfClientCoord { screenCtm } =
-  Coord.svgOfClientCoord >> Ctm.matrixTransform screenCtm
+  Pointer.svgOfClientCoord
+    >> Ctm.matrixTransform screenCtm
+    >> Point2d.fromCoordinates
 
 applyMove : ClickHover -> Components -> Components
 applyMove move components =
-  let offset = Vector2d.from (Coord.toPoint2d move.clicked.coord) (Coord.toPoint2d move.hovering.coord)
+  let offset = Vector2d.from move.clicked.point move.hovering.point
   in Transform.map (Transform.translateBy offset) move.clicked.id components
 
 -- TODO: detect when pointer is on root plane and
@@ -261,7 +264,7 @@ isValidMoveMachine { clicked, hovering } components =
           hoveringMachine.rectangle
             |> Rectangle2d.placeIn (Transform.placeInRoot components hovering.id)
             |> Rectangle2d.boundingBox
-        offset = Vector2d.from (Coord.toPoint2d clicked.coord) (Coord.toPoint2d hovering.coord)
+        offset = Vector2d.from clicked.point hovering.point
         clickedRect =
           clickedMachine.rectangle
             |> Rectangle2d.placeIn (Transform.placeInRoot components clicked.id)
@@ -301,7 +304,7 @@ isValidNewMachine { clicked, hovering } components =
   if clicked.id == hovering.id
   then
     let
-      newRect = Rectangle2d.from (Coord.toPoint2d clicked.coord) (Coord.toPoint2d hovering.coord) |> Rectangle2d.boundingBox
+      newRect = Rectangle2d.from clicked.point hovering.point |> Rectangle2d.boundingBox
       clickedChildren =
         Dict.get clicked.id components.transforms
           |> Maybe.map .children
@@ -343,7 +346,7 @@ drawSvg model =
             |> (if isValidMoveMachine move model.components then identity else setInvalid move.clicked.id)
         MachineMode (Just previous) ->
           let
-            rect = Rectangle2d.from (Coord.toPoint2d previous.clicked.coord) (Coord.toPoint2d previous.hovering.coord)
+            rect = Rectangle2d.from previous.clicked.point previous.hovering.point
             transform = Transform.empty (Coord.fromPoint2d (Rectangle2d.bottomLeftVertex rect))
             machine = emptyMachine (Rectangle2d.dimensions rect)
           in
@@ -371,6 +374,7 @@ drawSvg model =
     |> List.map (Svg.map PointerMsg)
 
 
+{-
 machineOutputCoord : GMachine -> SVGCoord
 machineOutputCoord { position, size } =
   { x = position.x + size.width/2
@@ -416,13 +420,14 @@ drawGMachine machine =
         , Rect.render [SA.class "machine-contour", SA.clipPath clipPath] machine
         ] ++ List.map drawGMachine floating)
     _ -> Debug.todo "draw"
+-}
 
 drawBackground : EntityId -> Svg Msg
 drawBackground id =
   let
     attributes =
-     [ SE.on "click" <| JD.map (Pointer.Clicked id) <| Coord.pageCoordDecoder
-     , SE.on "mousemove" <| JD.map (Pointer.MouseMoved id) <| Coord.pageCoordDecoder
+     [ SE.on "click" <| JD.map (Pointer.Clicked id) <| Pointer.pageCoordDecoder
+     , SE.on "mousemove" <| JD.map (Pointer.MouseMoved id) <| Pointer.pageCoordDecoder
      , SA.id "background"
      ]
     rect = { position = { x = 0, y = 0 }, size = { width = 800, height = 600 } }

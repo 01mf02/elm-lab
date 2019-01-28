@@ -11,7 +11,6 @@ import Dict.Extra as DictE
 import Geometry.Svg as Svg
 
 import Components exposing (..)
-import Coord
 import Entity exposing (..)
 import Machine exposing (..)
 import Pointer exposing (Msg(..))
@@ -24,8 +23,8 @@ drawMachineContour id machine =
   let
     attributes =
       [ SA.class "machine-contour"
-      , SE.on "click" <| JD.map (Clicked id) <| Coord.pageCoordDecoder
-      , SE.on "mousemove" <| JD.map (MouseMoved id) <| Coord.pageCoordDecoder
+      , SE.on "click" <| JD.map (Clicked id) <| Pointer.pageCoordDecoder
+      , SE.on "mousemove" <| JD.map (MouseMoved id) <| Pointer.pageCoordDecoder
       ]
     rect = { position = { x = 0, y = 0 }, size = machine.size }
   in
