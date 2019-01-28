@@ -23,7 +23,7 @@ type alias Transforms a =
 
 root : Transform
 root =
-  { frame = Frame2d.atPoint Point2d.origin
+  { frame = Frame2d.atOrigin
   , parent = Nothing
   , children = Set.empty
   }

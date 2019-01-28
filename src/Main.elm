@@ -41,27 +41,6 @@ main =
     }
 
 
-{-
-type Pipe = Pipe GMachine
-type alias Socket = Maybe Pipe
-
-type alias Arity = Int
-
-type Machine
-  = Abs AbsInfo Socket
-  | Constr ConstrName
-
-type alias GMachine =
-  Rectangular
-    { machine : Machine
-    , sockets : List Socket
-    }
-
-type alias AbsInfo =
-  { floating : List GMachine
-  }
--}
-
 
 testComponents : Components
 testComponents =
@@ -88,7 +67,6 @@ testComponents =
 
 type alias Model =
   { mode : Mode
---  , machine : GMachine
   , components : Components
   , screenCtm : Ctm
   , msElapsed : Float
@@ -139,25 +117,8 @@ init _ =
   , ScreenCtmPort.request svgElementId
   )
 
-{-
-initialMachine =
-  { position = { x = 100, y = 100 }
-  , size = { width = 100, height = 100 }
-  , machine =
-      Abs { floating = [] }
-       <| Just <| Pipe
-         { position = { x = 120, y = 120 }
-         , size = { width = 60, height = 60 }
-         , sockets = []
-         , machine = Abs { floating = [] } Nothing
-         }
-  , sockets = []
-  }
--}
-
 initialModel =
   { mode = DeleteMode
---  , machine = initialMachine
   , components = testComponents
   , screenCtm = Ctm.unit
   , msElapsed = 0
@@ -366,63 +327,12 @@ drawSvg model =
         |> Maybe.map .children
         |> Maybe.withDefault Set.empty
   in
- -- [drawGMachine model.machine]
-  --++
   foldl2
     (\id machine transform ->
       (::) (drawEMachine components id machine transform)
     ) [] (DictE.keepOnly rootChildren components.machines) components.transforms
     |> (::) (View.Background.draw rootTransformId)
     |> List.map (Svg.map PointerMsg)
-
-
-{-
-machineOutputCoord : GMachine -> SVGCoord
-machineOutputCoord { position, size } =
-  { x = position.x + size.width/2
-  , y = position.y + size.height
-  }
-
-drawSocket : Socket -> Svg msg
-drawSocket socket =
-  case socket of
-    Nothing -> Svg.g [] []
-    Just (Pipe machine) -> drawGMachine machine
-
-
-type alias Polygon = List (String, String)
-
-machineClipPolygon : Arity -> Polygon
-machineClipPolygon arity =
-  [ (   "0",    "0")
-  , ("100%",    "0")
-  , ("100%", "100%")
-  , ( "55%", "100%")
-  , ( "55%",  "80%")
-  , ( "45%",  "80%")
-  , ( "45%", "100%")
-  , (   "0", "100%")
-  ]
-
-clipPathOfPolygon : Polygon -> String
-clipPathOfPolygon polygon =
-  "polygon(" ++ String.join ", " (List.map (\ (x, y) -> x ++ " " ++ y) polygon) ++ ")"
-
-drawGMachine : GMachine -> Svg msg
-drawGMachine machine =
-  let
-    arity = List.length machine.sockets
-    clipPath = machineClipPolygon arity |> clipPathOfPolygon
-  in
-  case machine.machine of
-    Abs { floating } socket ->
-
-      Svg.g [ SA.class "gmachine" ]
-        ([ drawSocket socket
-        , Rect.render [SA.class "machine-contour", SA.clipPath clipPath] machine
-        ] ++ List.map drawGMachine floating)
-    _ -> Debug.todo "draw"
--}
 
 view : Model -> Html Msg
 view model =
