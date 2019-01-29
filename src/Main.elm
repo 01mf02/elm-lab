@@ -302,6 +302,7 @@ isValidMoveMachine { clicked, hovering } components =
     (Dict.get clicked.id components.transforms)
     (Dict.get hovering.id components.machines)
     |> Maybe.withDefault True
+    |> ((||) (clicked == hovering))
 
 isValidNewMachine : ClickHover -> Components -> Maybe (Set EntityId)
 isValidNewMachine { clicked, hovering } components =
