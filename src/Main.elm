@@ -1,3 +1,14 @@
+{-
+FIXME:
+
+- When clicking on object in transform mode without moving it,
+  it disappears.
+- Moving a machine with the cursor on the root may lead it
+  to intersect with another machine without triggering a warning.
+- The hovering display of machines is broken.
+- The root can be deleted.
+-}
+
 module Main exposing (main)
 
 import Browser
