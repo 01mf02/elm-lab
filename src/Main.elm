@@ -1,8 +1,6 @@
 {-
 FIXME:
 
-- When clicking on object in transform mode without moving it,
-  it disappears.
 - Moving a machine with the cursor on the root may lead it
   to intersect with another machine without triggering a warning.
 - The hovering display of machines is broken.
@@ -106,6 +104,10 @@ initClickHover mouseEvent =
   , hovering = mouseEvent
   }
 
+setHovering : MouseEvent -> ClickHover -> ClickHover
+setHovering mouseEvent clickHover =
+  { clickHover | hovering = mouseEvent }
+
 type Mode
   = ConnectMode
   | MachineMode (Maybe ClickHover)
@@ -162,13 +164,15 @@ update msg model =
       )
 
     PointerMsg (Pointer.Clicked id clientCoord) ->
-      let mouseEvent = { id = id, point = svgOfClientCoord model clientCoord }
+      let
+        mouseEvent = { id = id, point = svgOfClientCoord model clientCoord }
+        updateClickHover = Maybe.map (setHovering mouseEvent)
       in
       case model.mode of
         DeleteMode -> noCmd { model | components = deleteEntity id model.components }
 
         MachineMode maybeClickHover ->
-          case maybeClickHover of
+          case updateClickHover maybeClickHover of
             Nothing ->
               let clickHover = initClickHover mouseEvent
               in noCmd { model | mode = MachineMode (Just clickHover) }
@@ -188,7 +192,7 @@ update msg model =
                   noCmd model
 
         TransformMode maybeClickHover ->
-          case maybeClickHover of
+          case updateClickHover maybeClickHover of
             Nothing ->
               let move = initClickHover mouseEvent
               in noCmd { model | mode = TransformMode (Just move) }
@@ -228,16 +232,16 @@ update msg model =
         _ -> noCmd model
 
     PointerMsg (Pointer.MouseMoved id clientCoord) ->
-      let mouseEvent = { id = id, point = svgOfClientCoord model clientCoord }
+      let
+        mouseEvent = { id = id, point = svgOfClientCoord model clientCoord }
+        updateClickHover = Maybe.map (setHovering mouseEvent)
       in
       case model.mode of
-        TransformMode (Just clickHover) ->
-          let clickHover_ = { clickHover | hovering = mouseEvent }
-          in noCmd { model | mode = TransformMode (Just clickHover_) }
+        TransformMode maybeClickHover ->
+          noCmd { model | mode = TransformMode (updateClickHover maybeClickHover) }
 
-        MachineMode (Just clickHover) ->
-          let clickHover_ = { clickHover | hovering = mouseEvent }
-          in noCmd { model | mode = MachineMode (Just clickHover_) }
+        MachineMode maybeClickHover ->
+          noCmd { model | mode = MachineMode (updateClickHover maybeClickHover) }
 
         _ -> noCmd model
 
