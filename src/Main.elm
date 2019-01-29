@@ -4,7 +4,6 @@ FIXME:
 - Moving a machine with the cursor on the root may lead it
   to intersect with another machine without triggering a warning.
 - The hovering display of machines is broken.
-- The root can be deleted.
 -}
 
 module Main exposing (main)
@@ -169,7 +168,10 @@ update msg model =
         updateClickHover = Maybe.map (setHovering mouseEvent)
       in
       case model.mode of
-        DeleteMode -> noCmd { model | components = deleteEntity id model.components }
+        DeleteMode ->
+          if id == rootTransformId
+          then noCmd model
+          else noCmd { model | components = deleteEntity id model.components }
 
         MachineMode maybeClickHover ->
           case updateClickHover maybeClickHover of
