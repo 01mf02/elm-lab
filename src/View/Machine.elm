@@ -13,6 +13,7 @@ import Direction2d
 import Geometry.Svg as Svg
 import LineSegment2d
 import Point2d
+import Polyline2d
 import Rectangle2d
 import Vector2d
 
@@ -22,41 +23,68 @@ import Machine exposing (..)
 import Pointer exposing (Msg(..))
 import Transform exposing (Transform)
 
+untuple : List (List a, List a) -> List (List a)
+untuple list =
+  let
+    aux prev l =
+      case l of
+        [] -> [prev]
+        ( x1, x2 ) :: xs ->
+          (prev ++ x1) :: aux x2 xs
+  in
+  if List.isEmpty list then [] else aux [] list
+
+mapLast : (a -> List a) -> List a -> List a
+mapLast fn list =
+  case list of
+    x :: y :: l -> x :: mapLast fn (y :: l)
+    x :: [] -> fn x
+    [] -> []
+
+appendHeadLast : List a -> List a -> List (List a) -> List (List a)
+appendHeadLast start end list =
+  case list of
+    [] -> [start ++ end]
+    head :: xs -> ((start ++ head) :: xs) |> mapLast (\last -> [last ++ end])
+
+doorVertices mid =
+  let
+    doorLength = 15
+    left = Point2d.translateBy (Vector2d.withLength (-doorLength) Direction2d.x) mid
+    right = Point2d.translateBy (Vector2d.withLength (doorLength) Direction2d.x) mid
+    leftUp = Point2d.rotateAround left (45) mid
+    rightUp = Point2d.rotateAround right (-45) mid
+  in
+    ( [ left, leftUp ], [ rightUp, right ] )
+
 drawContour : EMachine -> List (Svg msg)
 drawContour machine =
   let
-    doorLength = 15
     attributes = [ SA.class "contour" ]
     edges = Rectangle2d.edges machine.rectangle
-    ( bottomLeftPoint, bottomRightPoint ) = LineSegment2d.endpoints edges.bottom
-    bottomDirection = LineSegment2d.direction edges.bottom |> Maybe.withDefault Direction2d.x
-    bottomMidPoint = LineSegment2d.midpoint edges.bottom
-    bottomMidPointLeft = Point2d.translateBy (Vector2d.withLength (-doorLength) bottomDirection) bottomMidPoint
-    bottomMidPointRight = Point2d.translateBy (Vector2d.withLength doorLength bottomDirection) bottomMidPoint
-    bottomLeftEdge = LineSegment2d.from bottomLeftPoint bottomMidPointLeft
-    bottomRightEdge = LineSegment2d.from bottomRightPoint bottomMidPointRight
-    bottomLeftDoor =
-      LineSegment2d.from bottomMidPointLeft bottomMidPoint
-        |> LineSegment2d.rotateAround bottomMidPointLeft 45
-    bottomRightDoor =
-      LineSegment2d.from bottomMidPointRight bottomMidPoint
-        |> LineSegment2d.rotateAround bottomMidPointRight (-45)
+    vertices = Rectangle2d.vertices machine.rectangle
 
+    inputVertices (x, _) =
+      LineSegment2d.midpoint edges.bottom
+        |> Point2d.translateBy (Vector2d.withLength x Direction2d.x)
+        |> doorVertices
+    outputVertices =
+      LineSegment2d.midpoint edges.top
+        |> doorVertices
+        |> Tuple.mapBoth List.reverse List.reverse
+
+    left = Tuple.first outputVertices ++ [ vertices.topLeft, vertices.bottomLeft ]
+    right = [ vertices.bottomRight, vertices.topRight ] ++ Tuple.second outputVertices
   in
-  List.map (Svg.lineSegment2d attributes)
-    [edges.right, edges.top, edges.left, bottomLeftEdge, bottomLeftDoor, bottomRightEdge, bottomRightDoor]
+  List.map inputVertices machine.inputs
+    |> untuple
+    |> appendHeadLast left right
+    |> List.map (Polyline2d.fromVertices >> Svg.polyline2d attributes)
 
 
 drawBackground machine =
   Rectangle2d.toPolygon machine.rectangle |>
     Svg.polygon2d [ SA.class "background" ]
-
-drawInputs machine =
-  List.map
-    (\(x, _) ->
-      Circle2d.withRadius 10 (Point2d.fromCoordinates ( x, 0 ))
-        |> Svg.circle2d [ SA.class "input" ]
-    ) machine.inputs
 
 drawMachine : EntityId -> EMachine -> Svg Msg
 drawMachine id machine =
@@ -67,7 +95,7 @@ drawMachine id machine =
       , SA.class "machine"
       ]
   in
-  Svg.g events (drawBackground machine :: (drawContour machine ++ drawInputs machine))
+  Svg.g events (drawBackground machine :: (drawContour machine))
 
 
 drawStrikethrough : EMachine -> Svg msg

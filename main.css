@@ -18,6 +18,7 @@
 #svg .machine .contour {
   stroke: #5184AF;
   stroke-width: 10;
+  fill-opacity: 0;
   rx: 15;
   ry: 15;
 }
