@@ -28,6 +28,13 @@ root =
   , children = Set.empty
   }
 
+getChildren : Transforms a -> EntityId -> Set EntityId
+getChildren components id =
+  Dict.get id components.transforms
+    |> Maybe.map .children
+    |> Maybe.withDefault Set.empty
+
+
 map : (Transform -> Transform) -> EntityId -> Transforms a -> Transforms a
 map fn id components =
   { components

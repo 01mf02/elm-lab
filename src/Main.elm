@@ -1,8 +1,6 @@
 {-
 FIXME:
 
-- Moving a machine with the cursor on the root may lead it
-  to intersect with another machine without triggering a warning.
 - The hovering display of machines is broken.
 -}
 
@@ -20,7 +18,7 @@ import Svg.Events as SE
 
 import Dict.Extra as DictE
 import Maybe.Extra as MaybeE
-import BoundingBox2d
+import BoundingBox2d exposing (BoundingBox2d)
 import Frame2d
 import Point2d exposing (Point2d)
 import Rectangle2d
@@ -259,51 +257,46 @@ applyMove move components =
   let offset = Vector2d.from move.clicked.point move.hovering.point
   in Transform.map (Transform.translateBy offset) move.clicked.id components
 
--- TODO: detect when pointer is on root plane and
--- moving machine intersects another machine
+globalBoundingBox : Components -> EntityId -> EMachine -> BoundingBox2d
+globalBoundingBox components id machine =
+  machine.rectangle
+    |> Rectangle2d.placeIn (Transform.placeInRoot components id)
+    |> Rectangle2d.boundingBox
+
 isValidMoveMachine : ClickHover -> Components -> Bool
 isValidMoveMachine { clicked, hovering } components =
-  Maybe.map3
-    (\clickedMachine clickedTransform hoveringMachine ->
+  Maybe.map2
+    (\clickedMachine clickedTransform ->
       let
-        hoveringRect =
-          hoveringMachine.rectangle
-            |> Rectangle2d.placeIn (Transform.placeInRoot components hovering.id)
-            |> Rectangle2d.boundingBox
+        boundingBox = globalBoundingBox components
+        maybeHoveringRect =
+          Dict.get hovering.id components.machines
+            |> Maybe.map (boundingBox hovering.id)
+
         offset = Vector2d.from clicked.point hovering.point
         clickedRect =
-          clickedMachine.rectangle
-            |> Rectangle2d.placeIn (Transform.placeInRoot components clicked.id)
-            |> Rectangle2d.translateBy offset
-            |> Rectangle2d.boundingBox
-        hoveringChildren =
-          Dict.get hovering.id components.transforms
-            |> Maybe.map .children
-            |> Maybe.withDefault Set.empty
-        hoveringMachines = DictE.keepOnly hoveringChildren components.machines
+          clickedMachine
+            |> boundingBox clicked.id
+            |> BoundingBox2d.translateBy offset
+
+        hoveringChildren = Transform.getChildren components hovering.id
+        hoveringMachines =
+          DictE.keepOnly hoveringChildren components.machines
+            |> Dict.filter (\id _ -> id /= clicked.id)
+
+        containsClicked hoveringRect =
+          BoundingBox2d.isContainedIn hoveringRect clickedRect
+        intersectsClicked id machine =
+          BoundingBox2d.intersects clickedRect (boundingBox id machine)
       in
-      if BoundingBox2d.isContainedIn hoveringRect clickedRect
-      then
-        Dict.foldl
-          (\id machine sofar ->
-            if sofar
-            then
-              let
-                rect =
-                  machine.rectangle
-                    |> Rectangle2d.placeIn (Transform.placeInRoot components id)
-                    |> Rectangle2d.boundingBox
-              in
-              id == clicked.id || not (BoundingBox2d.intersects clickedRect rect)
-            else False
-          ) True hoveringMachines
-      else
-        False
+      (Maybe.map containsClicked maybeHoveringRect |> Maybe.withDefault True)
+      &&
+      Dict.foldl (\id machine -> (&&) (not (intersectsClicked id machine)))
+        True hoveringMachines
     )
     (Dict.get clicked.id components.machines)
     (Dict.get clicked.id components.transforms)
-    (Dict.get hovering.id components.machines)
-    |> Maybe.withDefault True
+    |> Maybe.withDefault False
     |> ((||) (clicked == hovering))
 
 isValidNewMachine : ClickHover -> Components -> Maybe (Set EntityId)
@@ -311,22 +304,17 @@ isValidNewMachine { clicked, hovering } components =
   if clicked.id == hovering.id
   then
     let
-      newRect = Rectangle2d.from clicked.point hovering.point |> Rectangle2d.boundingBox
-      clickedChildren =
-        Dict.get clicked.id components.transforms
-          |> Maybe.map .children
-          |> Maybe.withDefault Set.empty
+      newRect =
+        Rectangle2d.from clicked.point hovering.point
+          |> Rectangle2d.boundingBox
+      clickedChildren = Transform.getChildren components clicked.id
       childMachines = DictE.keepOnly clickedChildren components.machines
     in
     Dict.foldl
       (\id machine ->
         Maybe.andThen
           (\inside ->
-            let
-              rect =
-                machine.rectangle
-                  |> Rectangle2d.placeIn (Transform.placeInRoot components id)
-                  |> Rectangle2d.boundingBox
+            let rect = globalBoundingBox components id machine
             in
             if BoundingBox2d.isContainedIn newRect rect
             then Just (Set.insert id inside)
@@ -362,10 +350,7 @@ drawSvg model =
                )
         _ -> model.components
 
-    rootChildren =
-      Dict.get rootTransformId components.transforms
-        |> Maybe.map .children
-        |> Maybe.withDefault Set.empty
+    rootChildren = Transform.getChildren components rootTransformId
   in
   foldl2
     (\id machine transform ->
