@@ -41,21 +41,28 @@ main =
     }
 
 
+addEmptyMachine : Point2d -> Point2d -> Components -> ( Components, EntityId )
+addEmptyMachine from to =
+  let
+    rectangleGlobal = Rectangle2d.from from to
+    machineFrame = Rectangle2d.axes rectangleGlobal
+    rectangleLocal = Rectangle2d.relativeTo machineFrame rectangleGlobal
+    rootTransform = Transform.root
+  in
+    Components.addMachine
+      (emptyMachine rectangleLocal)
+      { rootTransform | frame = machineFrame }
+
 
 testComponents : Components
 testComponents =
   let
-    makeRect c1 c2 =
-      Rectangle2d.from (Point2d.fromCoordinates c1) (Point2d.fromCoordinates c2)
+    global = Point2d.fromCoordinates
   in
   initialComponents
-    |> addMachine
-         (emptyMachine (makeRect ( 120, 120 ) ( 180, 180 )))
-         Transform.root
+    |> addEmptyMachine (global ( 120, 120 )) (global ( 180, 180 ))
     |> (\( components, childId ) ->
-       addMachine
-         (emptyMachine (makeRect ( 100, 100 ) ( 400, 400 )))
-         Transform.root
+       addEmptyMachine (global ( 100, 100 )) (global ( 400, 400 ))
          components
          |> (\( components_, parentId ) ->
               nameEntity parentId "test" components_
@@ -158,10 +165,8 @@ update msg model =
               case isValidNewMachine clickHover model.components of
                 Just inside ->
                   let
-                    rect = Rectangle2d.from clickHover.clicked.point clickHover.hovering.point
-                    machine = emptyMachine rect
                     components =
-                      addMachine machine Transform.root model.components
+                      addEmptyMachine clickHover.clicked.point clickHover.hovering.point model.components
                         |> (\(components_, newId) ->
                              Transform.adoptBy id newId components_
                              |> (\components__ -> Set.foldl (Transform.adoptBy newId) components__ inside)
@@ -329,18 +334,14 @@ drawSvg model =
             |> setSvgClass move.clicked.id "moving"
             |> (if isValidMoveMachine move model.components then identity else setInvalid move.clicked.id)
         MachineMode (Just previous) ->
-          let
-            rect = Rectangle2d.from previous.clicked.point previous.hovering.point
-            machine = emptyMachine rect
-          in
-            addMachine machine Transform.root model.components
-              |> (\( components_, childId ) ->
-                   ( setSvgClass childId "creating" components_, childId )
-                 )
-              |> (\(components_, childId) ->
-                   Transform.adoptBy previous.clicked.id childId components_
-                   |> (if isValidNewMachine previous model.components |> MaybeE.isJust then identity else setInvalid childId)
-                 )
+          addEmptyMachine previous.clicked.point previous.hovering.point model.components
+            |> (\( components_, childId ) ->
+                 ( setSvgClass childId "creating" components_, childId )
+               )
+            |> (\(components_, childId) ->
+                 Transform.adoptBy previous.clicked.id childId components_
+                 |> (if isValidNewMachine previous model.components |> MaybeE.isJust then identity else setInvalid childId)
+               )
         _ -> model.components
 
     rootChildren =
@@ -393,6 +394,6 @@ subscriptions model =
   Sub.batch
     [ ScreenCtmPort.receive ScreenCtmGot
     , Browser.Events.onKeyDown (JD.map keyHandler rawKeyDecoder)
-    , Browser.Events.onAnimationFrameDelta OnAnimationFrameDelta
+    --, Browser.Events.onAnimationFrameDelta OnAnimationFrameDelta
     ]
 
