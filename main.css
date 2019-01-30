@@ -19,18 +19,20 @@
   stroke: #5184AF;
   stroke-width: 10;
   fill-opacity: 0;
+  pointer-events: none;
   rx: 15;
   ry: 15;
 }
 
-#svg .machine .contour:hover {
-  stroke: red;
-  stroke-dasharray: 10;
-  stroke-dashoffset: calc(var(--ms-elapsed)/100);
-}
-
 #svg .machine .background {
   fill-opacity: 0;
+}
+
+#svg .machine .background:hover {
+  stroke: red;
+  stroke-width: 10;
+  stroke-dasharray: 10;
+  stroke-dashoffset: calc(var(--ms-elapsed)/100);
 }
 
 

@@ -12,13 +12,15 @@ import Dict.Extra as DictE
 import Direction2d
 import Geometry.Svg as Svg
 import LineSegment2d
-import Point2d
+import Point2d exposing (Point2d)
+import Polygon2d
 import Polyline2d
 import Rectangle2d
 import Vector2d
 
 import Components exposing (..)
 import Entity exposing (..)
+import Input exposing (Input)
 import Machine exposing (..)
 import Pointer exposing (Msg(..))
 import Transform exposing (Transform)
@@ -57,13 +59,13 @@ doorVertices mid =
   in
     ( [ left, leftUp ], [ rightUp, right ] )
 
-drawContour : Components -> EMachine -> List (Svg msg)
-drawContour components machine =
-  let
-    attributes = [ SA.class "contour" ]
-    edges = Rectangle2d.edges machine.rectangle
-    vertices = Rectangle2d.vertices machine.rectangle
+type alias InputSegment = (List Point2d, List Point2d)
+type alias OutputSegment = InputSegment
 
+inputOutputSegments : EMachine -> ( Input -> InputSegment, OutputSegment )
+inputOutputSegments machine =
+  let
+    edges = Rectangle2d.edges machine.rectangle
     inputVertices { position } =
       LineSegment2d.midpoint edges.bottom
         |> Point2d.translateBy (Vector2d.withLength position Direction2d.x)
@@ -72,6 +74,14 @@ drawContour components machine =
       LineSegment2d.midpoint edges.top
         |> doorVertices
         |> Tuple.mapBoth List.reverse List.reverse
+  in
+  ( inputVertices, outputVertices )
+
+contourSegments : Components -> EMachine -> List (List Point2d)
+contourSegments components machine =
+  let
+    vertices = Rectangle2d.vertices machine.rectangle
+    ( inputVertices, outputVertices ) = inputOutputSegments machine
 
     left = Tuple.first outputVertices ++ [ vertices.topLeft, vertices.bottomLeft ]
     right = [ vertices.bottomRight, vertices.topRight ] ++ Tuple.second outputVertices
@@ -82,12 +92,18 @@ drawContour components machine =
     |> List.map inputVertices
     |> untuple
     |> appendHeadLast left right
-    |> List.map (Polyline2d.fromVertices >> Svg.polyline2d attributes)
 
+drawContour : Components -> EMachine -> List (Svg msg)
+drawContour components machine =
+  contourSegments components machine
+    |> List.map (Polyline2d.fromVertices >> Svg.polyline2d [ SA.class "contour" ])
 
-drawBackground machine =
-  Rectangle2d.toPolygon machine.rectangle |>
-    Svg.polygon2d [ SA.class "background" ]
+drawBackground : Components -> EMachine -> Svg msg
+drawBackground components machine =
+  contourSegments components machine
+    |> List.concat
+    |> Polygon2d.singleLoop
+    |> Svg.polygon2d [ SA.class "background" ]
 
 drawMachine : Components -> EntityId -> EMachine -> Svg Msg
 drawMachine components id machine =
@@ -98,7 +114,7 @@ drawMachine components id machine =
       , SA.class "machine"
       ]
   in
-  Svg.g events (drawBackground machine :: (drawContour components machine))
+  Svg.g events ((drawContour components machine) ++ [drawBackground components machine])
 
 
 drawStrikethrough : EMachine -> Svg msg

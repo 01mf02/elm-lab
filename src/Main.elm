@@ -1,9 +1,3 @@
-{-
-FIXME:
-
-- The hovering display of machines is broken.
--}
-
 module Main exposing (main)
 
 import Browser
@@ -388,6 +382,6 @@ subscriptions model =
   Sub.batch
     [ ScreenCtmPort.receive ScreenCtmGot
     , Browser.Events.onKeyDown (JD.map keyHandler rawKeyDecoder)
-    --, Browser.Events.onAnimationFrameDelta OnAnimationFrameDelta
+    , Browser.Events.onAnimationFrameDelta OnAnimationFrameDelta
     ]
 
