@@ -5,6 +5,7 @@ import Set exposing (Set)
 
 import Connection exposing (..)
 import Entity exposing (EntityId)
+import Input exposing (Input)
 import Machine exposing (..)
 import Transform exposing (Transform)
 
@@ -12,6 +13,7 @@ type alias Components =
   { nextId : EntityId
   , names : Dict EntityId String
   , machines : Dict EntityId EMachine
+  , inputs : Dict EntityId Input
   , connections : Dict EntityId Connection
   , transforms : Dict EntityId Transform
   , svgClasses : Dict EntityId String
@@ -24,6 +26,7 @@ initialComponents =
   { nextId = rootTransformId + 1
   , names = Dict.empty
   , machines = Dict.empty
+  , inputs = Dict.empty
   , connections = Dict.empty
   , transforms = Dict.singleton rootTransformId Transform.root
   , svgClasses = Dict.empty
@@ -87,6 +90,20 @@ addMachine machine transform components =
   , components.nextId
   )
 
+addInput : EntityId -> Input -> Components -> ( Components, EntityId )
+addInput machineId input components =
+  let
+    updateMachine machine =
+      { machine | inputs = components.nextId :: machine.inputs }
+  in
+  ( { components
+      | nextId = components.nextId + 1
+      , machines = Dict.update machineId (Maybe.map updateMachine) components.machines
+      , inputs = Dict.insert components.nextId input components.inputs
+    }
+  , components.nextId
+  )
+
 addConnection : Connection -> Components -> ( Components, EntityId )
 addConnection connection components =
   ( { components
@@ -118,6 +135,7 @@ deleteEntity id components =
   { nextId = components.nextId
   , names = Dict.remove id components.names
   , machines = Dict.remove id components.machines
+  , inputs = Dict.remove id components.inputs
   , connections = Dict.remove id components.connections
   , transforms = Dict.remove id components.transforms
   , svgClasses = Dict.remove id components.svgClasses

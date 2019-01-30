@@ -57,16 +57,16 @@ doorVertices mid =
   in
     ( [ left, leftUp ], [ rightUp, right ] )
 
-drawContour : EMachine -> List (Svg msg)
-drawContour machine =
+drawContour : Components -> EMachine -> List (Svg msg)
+drawContour components machine =
   let
     attributes = [ SA.class "contour" ]
     edges = Rectangle2d.edges machine.rectangle
     vertices = Rectangle2d.vertices machine.rectangle
 
-    inputVertices (x, _) =
+    inputVertices { position } =
       LineSegment2d.midpoint edges.bottom
-        |> Point2d.translateBy (Vector2d.withLength x Direction2d.x)
+        |> Point2d.translateBy (Vector2d.withLength position Direction2d.x)
         |> doorVertices
     outputVertices =
       LineSegment2d.midpoint edges.top
@@ -76,7 +76,10 @@ drawContour machine =
     left = Tuple.first outputVertices ++ [ vertices.topLeft, vertices.bottomLeft ]
     right = [ vertices.bottomRight, vertices.topRight ] ++ Tuple.second outputVertices
   in
-  List.map inputVertices machine.inputs
+  machine.inputs
+    |> List.filterMap (\inputId -> Dict.get inputId components.inputs)
+    |> List.sortBy .position
+    |> List.map inputVertices
     |> untuple
     |> appendHeadLast left right
     |> List.map (Polyline2d.fromVertices >> Svg.polyline2d attributes)
@@ -86,8 +89,8 @@ drawBackground machine =
   Rectangle2d.toPolygon machine.rectangle |>
     Svg.polygon2d [ SA.class "background" ]
 
-drawMachine : EntityId -> EMachine -> Svg Msg
-drawMachine id machine =
+drawMachine : Components -> EntityId -> EMachine -> Svg Msg
+drawMachine components id machine =
   let
     events =
       [ SE.on "click" <| JD.map (Clicked id) <| Pointer.pageCoordDecoder
@@ -95,7 +98,7 @@ drawMachine id machine =
       , SA.class "machine"
       ]
   in
-  Svg.g events (drawBackground machine :: (drawContour machine))
+  Svg.g events (drawBackground machine :: (drawContour components machine))
 
 
 drawStrikethrough : EMachine -> Svg msg
@@ -116,7 +119,7 @@ drawEMachine components id machine transform =
   in
   Svg.placeIn transform.frame
   <| Svg.g groupAttributes
-    <| (::) (drawMachine id machine)
+    <| (::) (drawMachine components id machine)
     <| (if Set.member id components.invalids then (::) (drawStrikethrough machine) else identity)
     <| drawEMachines components
          (DictE.keepOnly transform.children components.machines)

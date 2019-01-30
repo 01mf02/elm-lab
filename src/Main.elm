@@ -211,22 +211,13 @@ update msg model =
         InputMode ->
           let
             components = model.components
-
-            insertInput machine =
-              let
-                transform = Transform.placeInRoot components mouseEvent.id
-                clickedIn = Point2d.relativeTo transform mouseEvent.point
-                newInput = ( Point2d.xCoordinate clickedIn, Nothing )
-              in
-              { machine | inputs = newInput :: machine.inputs |> List.sortBy Tuple.first }
-
+            transform = Transform.placeInRoot components mouseEvent.id
+            clickedIn = Point2d.relativeTo transform mouseEvent.point
+            newInput = { parent = mouseEvent.id, position = Point2d.xCoordinate clickedIn }
           in
           { model
             | components =
-                { components
-                  | machines =
-                      Dict.update id (Maybe.map insertInput) components.machines
-                }
+                addInput mouseEvent.id newInput model.components |> Tuple.first
           } |> noCmd
 
         _ -> noCmd model
