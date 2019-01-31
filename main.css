@@ -24,6 +24,17 @@
   ry: 15;
 }
 
+#svg .machine .input {
+  fill-opacity: 0;
+}
+
+#svg .machine .input:hover {
+  stroke: red;
+  stroke-width: 10;
+  stroke-dasharray: 10;
+  stroke-dashoffset: calc(var(--ms-elapsed)/100);
+}
+
 #svg .machine .background {
   fill-opacity: 0;
 }

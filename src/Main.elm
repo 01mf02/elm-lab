@@ -100,7 +100,7 @@ setHovering mouseEvent clickHover =
   { clickHover | hovering = mouseEvent }
 
 type Mode
-  = ConnectMode
+  = ConnectMode (Maybe ClickHover)
   | MachineMode (Maybe ClickHover)
   | InputMode
   | DeleteMode
@@ -111,6 +111,9 @@ initialTransformMode =
 
 initialMachineMode =
   MachineMode Nothing
+
+initialConnectMode =
+  ConnectMode Nothing
 
 type Msg
   = NoOp
@@ -214,7 +217,12 @@ update msg model =
                 addInput mouseEvent.id newInput model.components |> Tuple.first
           } |> noCmd
 
-        _ -> noCmd model
+        ConnectMode maybeClickHover ->
+          case updateClickHover maybeClickHover of
+            Nothing ->
+              noCmd model
+            Just clickHover ->
+              noCmd model
 
     PointerMsg (Pointer.MouseMoved id clientCoord) ->
       let
@@ -371,7 +379,7 @@ rawKeyDecoder =
 keyHandler : String -> Msg
 keyHandler s =
   case s of
-    "c" -> ModeChanged ConnectMode
+    "c" -> ModeChanged initialConnectMode
     "m" -> ModeChanged initialMachineMode
     "i" -> ModeChanged InputMode
     "d" -> ModeChanged DeleteMode

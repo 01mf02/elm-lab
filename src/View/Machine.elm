@@ -105,6 +105,28 @@ drawBackground components machine =
     |> Polygon2d.singleLoop
     |> Svg.polygon2d [ SA.class "background" ]
 
+drawInput : EntityId -> InputSegment -> Svg Msg
+drawInput id ( left, right ) =
+  let
+    attributes =
+      [ SA.class "input"
+      , SE.on "click" <| JD.map (Clicked id) <| Pointer.pageCoordDecoder
+      ]
+    vertices = left ++ right
+  in
+  Polygon2d.singleLoop vertices |> Svg.polygon2d attributes
+
+drawInputs : Components -> EMachine -> List (Svg Msg)
+drawInputs components machine =
+  let ( inputVertices, _ ) = inputOutputSegments machine
+  in
+  machine.inputs
+    |> List.filterMap
+         (\inputId -> Dict.get inputId components.inputs
+           |> Maybe.map (Tuple.pair inputId)
+         )
+    |> List.map (\( inputId, input ) -> drawInput inputId (inputVertices input))
+
 drawMachine : Components -> EntityId -> EMachine -> Svg Msg
 drawMachine components id machine =
   let
@@ -114,7 +136,7 @@ drawMachine components id machine =
       , SA.class "machine"
       ]
   in
-  Svg.g events ((drawContour components machine) ++ [drawBackground components machine])
+  Svg.g events ((drawContour components machine) ++ (drawBackground components machine :: drawInputs components machine))
 
 
 drawStrikethrough : EMachine -> Svg msg
