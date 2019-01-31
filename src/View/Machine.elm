@@ -140,18 +140,38 @@ drawInputs components machine =
     |> List.map (\( inputId, input ) -> drawInput inputId (inputVertices input))
 
 drawConnection : Components -> EMachine -> Connection -> Svg msg
-drawConnection components machine connection =
+drawConnection components machine { from, to } =
   let
     edges = Rectangle2d.edges machine.rectangle
     maybeStart =
-      Dict.get (Tuple.first connection.from) components.inputs
-        |> Maybe.map (inputMidPoint edges)
-    end = outputMidPoint edges
+      case from.typ of
+        Connection.Input ->
+          Dict.get (from.id) components.inputs
+            |> Maybe.map (inputMidPoint edges)
+        Connection.Output -> Nothing
+    maybeEnd =
+      case to.typ of
+        Connection.Input ->
+          Dict.get to.id components.inputs
+            |> Maybe.andThen
+               (\input ->
+                 Maybe.map2
+                  (\innerMachine innerMachineTransform ->
+                    let
+                      innerEdges = Rectangle2d.edges innerMachine.rectangle
+                      point = inputMidPoint innerEdges input
+                    in
+                      Point2d.placeIn innerMachineTransform.frame point
+                  )
+                  (Dict.get input.parent components.machines)
+                  (Dict.get input.parent components.transforms)
+               )
+        Connection.Output -> Just (outputMidPoint edges)
     attributes = [ SA.class "connection" ]
   in
-  Maybe.map
-    (\start -> LineSegment2d.from start end |> Svg.lineSegment2d attributes)
-    maybeStart
+  Maybe.map2
+    (\start end -> LineSegment2d.from start end |> Svg.lineSegment2d attributes)
+    maybeStart maybeEnd
     |> Maybe.withDefault (Svg.g [] [])
 
 

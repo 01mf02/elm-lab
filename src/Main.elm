@@ -226,8 +226,8 @@ update msg model =
               let
                 machineId = clickHover.hovering.id
                 connection =
-                  { from = ( clickHover.clicked.id, Connection.Input )
-                  , to = ( clickHover.hovering.id, Connection.Output )
+                  { from = { id = clickHover.clicked.id, typ = Connection.Input }
+                  , to = { id = clickHover.hovering.id, typ = Connection.Output }
                   }
               in
               { model
