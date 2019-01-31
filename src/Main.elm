@@ -19,6 +19,7 @@ import Rectangle2d
 import Vector2d
 
 import Components exposing (..)
+import Connection
 import Ctm exposing (Ctm)
 import CssPropPort
 import Entity exposing (EntityId)
@@ -224,11 +225,15 @@ update msg model =
             Just clickHover ->
               let
                 machineId = clickHover.hovering.id
+                connection =
+                  { from = ( clickHover.clicked.id, Connection.Input )
+                  , to = ( clickHover.hovering.id, Connection.Output )
+                  }
               in
               { model
                 | mode = initialConnectMode
                 , components =
-                    addConnection machineId { from = clickHover.clicked.id, to = clickHover.hovering.id } model.components
+                    addConnection machineId connection model.components
                       |> Tuple.first
               } |> noCmd
 

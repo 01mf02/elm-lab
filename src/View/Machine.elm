@@ -62,16 +62,20 @@ doorVertices mid =
 type alias InputSegment = (List Point2d, List Point2d)
 type alias OutputSegment = InputSegment
 
+inputMidPoint edges { position } =
+  LineSegment2d.midpoint edges.bottom
+    |> Point2d.translateBy (Vector2d.withLength position Direction2d.x)
+
+outputMidPoint edges =
+  LineSegment2d.midpoint edges.top
+
 inputOutputSegments : EMachine -> ( Input -> InputSegment, OutputSegment )
 inputOutputSegments machine =
   let
     edges = Rectangle2d.edges machine.rectangle
-    inputVertices { position } =
-      LineSegment2d.midpoint edges.bottom
-        |> Point2d.translateBy (Vector2d.withLength position Direction2d.x)
-        |> doorVertices
+    inputVertices = inputMidPoint edges >> doorVertices
     outputVertices =
-      LineSegment2d.midpoint edges.top
+      outputMidPoint edges
         |> doorVertices
         |> Tuple.mapBoth List.reverse List.reverse
   in
@@ -126,6 +130,11 @@ drawInputs components machine =
            |> Maybe.map (Tuple.pair inputId)
          )
     |> List.map (\( inputId, input ) -> drawInput inputId (inputVertices input))
+
+drawConnections : Components -> EMachine -> List (Svg msg)
+drawConnections components machine =
+  Set.foldl (\x acc -> acc) [] machine.connections
+
 
 drawMachine : Components -> EntityId -> EMachine -> Svg Msg
 drawMachine components id machine =
