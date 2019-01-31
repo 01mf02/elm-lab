@@ -19,6 +19,7 @@ import Rectangle2d
 import Vector2d
 
 import Components exposing (..)
+import Connection exposing (Connection)
 import Entity exposing (..)
 import Input exposing (Input)
 import Machine exposing (..)
@@ -102,12 +103,19 @@ drawContour components machine =
   contourSegments components machine
     |> List.map (Polyline2d.fromVertices >> Svg.polyline2d [ SA.class "contour" ])
 
-drawBackground : Components -> EMachine -> Svg msg
-drawBackground components machine =
+drawBackground : Components -> EntityId -> EMachine -> Svg Msg
+drawBackground components id machine =
+  let
+    attributes =
+      [ SE.on "click" <| JD.map (Clicked id) <| Pointer.pageCoordDecoder
+      , SE.on "mousemove" <| JD.map (MouseMoved id) <| Pointer.pageCoordDecoder
+      , SA.class "background"
+      ]
+  in
   contourSegments components machine
     |> List.concat
     |> Polygon2d.singleLoop
-    |> Svg.polygon2d [ SA.class "background" ]
+    |> Svg.polygon2d attributes
 
 drawInput : EntityId -> InputSegment -> Svg Msg
 drawInput id ( left, right ) =
@@ -131,21 +139,39 @@ drawInputs components machine =
          )
     |> List.map (\( inputId, input ) -> drawInput inputId (inputVertices input))
 
+drawConnection : Components -> EMachine -> Connection -> Svg msg
+drawConnection components machine connection =
+  let
+    edges = Rectangle2d.edges machine.rectangle
+    maybeStart =
+      Dict.get (Tuple.first connection.from) components.inputs
+        |> Maybe.map (inputMidPoint edges)
+    end = outputMidPoint edges
+    attributes = [ SA.class "connection" ]
+  in
+  Maybe.map
+    (\start -> LineSegment2d.from start end |> Svg.lineSegment2d attributes)
+    maybeStart
+    |> Maybe.withDefault (Svg.g [] [])
+
+
 drawConnections : Components -> EMachine -> List (Svg msg)
 drawConnections components machine =
-  Set.foldl (\x acc -> acc) [] machine.connections
+  machine.connections
+    |> Set.toList
+    |> List.filterMap
+         (\id ->
+           Dict.get id components.connections
+             |> Maybe.map (drawConnection components machine)
+         )
 
 
 drawMachine : Components -> EntityId -> EMachine -> Svg Msg
 drawMachine components id machine =
   let
-    events =
-      [ SE.on "click" <| JD.map (Clicked id) <| Pointer.pageCoordDecoder
-      , SE.on "mousemove" <| JD.map (MouseMoved id) <| Pointer.pageCoordDecoder
-      , SA.class "machine"
-      ]
+    attributes = [ SA.class "machine" ]
   in
-  Svg.g events ((drawContour components machine) ++ (drawBackground components machine :: drawInputs components machine))
+  Svg.g attributes ((drawContour components machine) ++ (drawBackground components id machine :: drawInputs components machine) ++ drawConnections components machine)
 
 
 drawStrikethrough : EMachine -> Svg msg

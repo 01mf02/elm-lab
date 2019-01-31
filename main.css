@@ -46,6 +46,11 @@
   stroke-dashoffset: calc(var(--ms-elapsed)/100);
 }
 
+#svg .machine .connection {
+  stroke: black;
+  stroke-width: 3;
+}
+
 
 /* thanks to:
  * <https://stackoverflow.com/questions/44196142/make-full-bounding-area-of-svg-shape-clickable>
