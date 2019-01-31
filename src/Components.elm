@@ -104,10 +104,15 @@ addInput machineId input components =
   , components.nextId
   )
 
-addConnection : Connection -> Components -> ( Components, EntityId )
-addConnection connection components =
+addConnection : EntityId -> Connection -> Components -> ( Components, EntityId )
+addConnection machineId connection components =
+  let
+    updateMachine machine =
+      { machine | connections = Set.insert components.nextId machine.connections }
+  in
   ( { components
       | nextId = components.nextId + 1
+      , machines = Dict.update machineId (Maybe.map updateMachine) components.machines
       , connections = Dict.insert components.nextId connection components.connections
     }
   , components.nextId

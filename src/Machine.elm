@@ -1,5 +1,7 @@
 module Machine exposing (..)
 
+import Set exposing (Set)
+
 import Rectangle2d exposing (Rectangle2d)
 
 import Entity exposing (EntityId)
@@ -13,6 +15,7 @@ type MachineType
 
 type alias EMachine =
   { inputs : List EntityId
+  , connections : Set EntityId
   , machineType : MachineType
   , rectangle : Rectangle2d
   }
@@ -20,6 +23,7 @@ type alias EMachine =
 emptyMachine : Rectangle2d -> EMachine
 emptyMachine rectangle =
   { inputs = []
+  , connections = Set.empty
   , machineType = TAbs
   , rectangle = rectangle
   }
