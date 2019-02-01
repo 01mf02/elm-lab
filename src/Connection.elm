@@ -72,19 +72,18 @@ from components id1 id2 =
     ( True, False ) ->
       Maybe.map2
         (\parent1 parent2 ->
-          if contains parent2 parent1
-          then Just { from = { id = id1, typ = Output }
-                    , to = { id = id2, typ = Input }
-                    , machine = parent1
+          if parent2 == id1
+          then Just { from = { id = id2, typ = Input }
+                    , to = { id = id1, typ = Output }
+                    , machine = parent2
                     }
           else
-            if parent2 == id1
-            then Just { from = { id = id2, typ = Input }
-                      , to = { id = id1, typ = Output }
-                      , machine = parent2
+            if contains parent2 parent1
+            then Just { from = { id = id1, typ = Output }
+                      , to = { id = id2, typ = Input }
+                      , machine = parent1
                       }
             else Nothing
-
         )
         (Transform.getParent components id1)
         (Input.getParent components id2)
