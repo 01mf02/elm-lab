@@ -11,7 +11,7 @@ import Circle2d
 import Dict.Extra as DictE
 import Direction2d
 import Geometry.Svg as Svg
-import LineSegment2d
+import LineSegment2d exposing (LineSegment2d)
 import Point2d exposing (Point2d)
 import Polygon2d
 import Polyline2d
@@ -50,6 +50,7 @@ appendHeadLast start end list =
     [] -> [start ++ end]
     head :: xs -> ((start ++ head) :: xs) |> mapLast (\last -> [last ++ end])
 
+doorVertices : Point2d -> InputSegment
 doorVertices mid =
   let
     doorLength = 15
@@ -63,10 +64,12 @@ doorVertices mid =
 type alias InputSegment = (List Point2d, List Point2d)
 type alias OutputSegment = InputSegment
 
+inputMidPoint : { a | bottom : LineSegment2d } -> Input -> Point2d
 inputMidPoint edges { position } =
   LineSegment2d.midpoint edges.bottom
     |> Point2d.translateBy (Vector2d.withLength position Direction2d.x)
 
+outputMidPoint : { a | top : LineSegment2d } -> Point2d
 outputMidPoint edges =
   LineSegment2d.midpoint edges.top
 
@@ -139,6 +142,18 @@ drawInputs components machine =
          )
     |> List.map (\( inputId, input ) -> drawInput inputId (inputVertices input))
 
+transformEdgePoint components fn machineId =
+  Maybe.map2
+    (\innerMachineTransform ->
+      .rectangle
+        >> Rectangle2d.edges
+        >> fn
+        >> Point2d.placeIn innerMachineTransform.frame
+    )
+    (Dict.get machineId components.transforms)
+    (Dict.get machineId components.machines)
+
+
 drawConnection : Components -> EMachine -> Connection -> Svg msg
 drawConnection components machine { from, to } =
   let
@@ -149,33 +164,13 @@ drawConnection components machine { from, to } =
           Dict.get (from.id) components.inputs
             |> Maybe.map (inputMidPoint edges)
         Connection.Output ->
-          Maybe.map2
-            (\innerMachine innerMachineTransform ->
-              let
-                innerEdges = Rectangle2d.edges innerMachine.rectangle
-                point = outputMidPoint innerEdges
-              in
-                Point2d.placeIn innerMachineTransform.frame point
-            )
-            (Dict.get from.id components.machines)
-            (Dict.get from.id components.transforms)
+          transformEdgePoint components outputMidPoint from.id
     maybeEnd =
       case to.typ of
         Connection.Input ->
           Dict.get to.id components.inputs
             |> Maybe.andThen
-               (\input ->
-                 Maybe.map2
-                  (\innerMachine innerMachineTransform ->
-                    let
-                      innerEdges = Rectangle2d.edges innerMachine.rectangle
-                      point = inputMidPoint innerEdges input
-                    in
-                      Point2d.placeIn innerMachineTransform.frame point
-                  )
-                  (Dict.get input.parent components.machines)
-                  (Dict.get input.parent components.transforms)
-               )
+               (\input -> transformEdgePoint components (\innerEdges -> inputMidPoint innerEdges input) input.parent)
         Connection.Output -> Just (outputMidPoint edges)
     attributes = [ SA.class "connection" ]
   in
