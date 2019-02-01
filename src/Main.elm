@@ -222,20 +222,16 @@ update msg model =
           case updateClickHover maybeClickHover of
             Nothing ->
               noCmd { model | mode = ConnectMode (Just (initClickHover mouseEvent)) }
-            Just clickHover ->
-              let
-                machineId = clickHover.hovering.id
-                connection =
-                  { from = { id = clickHover.clicked.id, typ = Connection.Input }
-                  , to = { id = clickHover.hovering.id, typ = Connection.Output }
-                  }
-              in
-              { model
-                | mode = initialConnectMode
-                , components =
-                    addConnection machineId connection model.components
-                      |> Tuple.first
-              } |> noCmd
+            Just { clicked, hovering } ->
+              case Connection.from model.components clicked.id hovering.id of
+                Nothing -> noCmd model
+                Just connection ->
+                  { model
+                    | mode = initialConnectMode
+                    , components =
+                        addConnection connection model.components
+                          |> Tuple.first
+                  } |> noCmd
 
     PointerMsg (Pointer.MouseMoved id clientCoord) ->
       let

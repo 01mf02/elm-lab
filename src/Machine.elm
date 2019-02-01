@@ -1,5 +1,6 @@
 module Machine exposing (..)
 
+import Dict exposing (Dict)
 import Set exposing (Set)
 
 import Rectangle2d exposing (Rectangle2d)
@@ -27,3 +28,11 @@ emptyMachine rectangle =
   , machineType = TAbs
   , rectangle = rectangle
   }
+
+type alias Machines a =
+  { a | machines : Dict EntityId EMachine }
+
+
+getMachine : Machines a -> EntityId -> Maybe EMachine
+getMachine components id =
+  Dict.get id components.machines

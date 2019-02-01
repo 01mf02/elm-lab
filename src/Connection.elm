@@ -1,6 +1,11 @@
 module Connection exposing (..)
 
+import Maybe.Extra as MaybeE
+
 import Entity exposing (EntityId)
+import Input exposing (Inputs)
+import Machine exposing (Machines)
+import Transform exposing (Transforms)
 
 type Type = Input | Output
 
@@ -19,4 +24,69 @@ type alias Endpoint =
 type alias Connection =
   { from : Endpoint
   , to : Endpoint
+  , machine : EntityId
   }
+
+from : Machines (Transforms (Inputs a)) -> EntityId -> EntityId -> Maybe Connection
+from components id1 id2 =
+  let
+    isMachine = Machine.getMachine components >> MaybeE.isJust
+    contains = Transform.isParentOf components
+  in
+  case ( isMachine id1, isMachine id2 ) of
+    -- both machine outputs
+    ( True, True ) ->
+      if contains id1 id2
+      then Just { from = { id = id1, typ = Output }
+                , to = { id = id2, typ = Output }
+                , machine = id2
+                }
+      else
+        if contains id2 id1
+        then Just { from = { id = id2, typ = Output }
+                  , to = { id = id1, typ = Output }
+                  , machine = id1
+                  }
+        else Nothing
+    -- both machine inputs
+    ( False, False ) ->
+      Maybe.map2
+        (\machine1 machine2 ->
+          if contains machine1 machine2
+          then Just { from = { id = id2, typ = Input }
+                    , to = { id = id1, typ = Input }
+                    , machine = machine2
+                    }
+          else
+            if contains machine2 machine1
+            then Just { from = { id = id1, typ = Input }
+                      , to = { id = id2, typ = Input }
+                      , machine = machine1
+                      }
+            else Nothing
+        )
+        (Input.getParent components id1)
+        (Input.getParent components id2)
+        |> MaybeE.join
+    -- first is machine output, second is input
+    ( True, False ) ->
+      Maybe.map2
+        (\parent1 parent2 ->
+          if contains parent2 parent1
+          then Just { from = { id = id1, typ = Output }
+                    , to = { id = id2, typ = Input }
+                    , machine = parent1
+                    }
+          else
+            if parent2 == id1
+            then Just { from = { id = id2, typ = Input }
+                      , to = { id = id1, typ = Output }
+                      , machine = parent2
+                      }
+            else Nothing
+
+        )
+        (Transform.getParent components id1)
+        (Input.getParent components id2)
+        |> MaybeE.join
+    ( False, True ) -> from components id2 id1

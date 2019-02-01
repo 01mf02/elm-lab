@@ -91,3 +91,14 @@ adoptBy newParentId childId components =
         >> Dict.update childId (Maybe.map updateChild)
   in
   { components | transforms = updateTransforms components.transforms }
+
+getParent : Transforms a -> EntityId -> Maybe EntityId
+getParent components id =
+  Dict.get id components.transforms
+    |> Maybe.andThen .parent
+
+isParentOf : Transforms a -> EntityId -> EntityId -> Bool
+isParentOf components id1 id2 =
+  getParent components id1
+    |> Maybe.map ((==) id2)
+    |> Maybe.withDefault False
