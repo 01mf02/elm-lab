@@ -148,7 +148,17 @@ drawConnection components machine { from, to } =
         Connection.Input ->
           Dict.get (from.id) components.inputs
             |> Maybe.map (inputMidPoint edges)
-        Connection.Output -> Nothing
+        Connection.Output ->
+          Maybe.map2
+            (\innerMachine innerMachineTransform ->
+              let
+                innerEdges = Rectangle2d.edges innerMachine.rectangle
+                point = outputMidPoint innerEdges
+              in
+                Point2d.placeIn innerMachineTransform.frame point
+            )
+            (Dict.get from.id components.machines)
+            (Dict.get from.id components.transforms)
     maybeEnd =
       case to.typ of
         Connection.Input ->
