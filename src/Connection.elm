@@ -7,7 +7,7 @@ import Maybe.Extra as MaybeE
 
 import Entity exposing (EntityId)
 import Input exposing (Inputs)
-import Machine exposing (Machines)
+import Machine exposing (Machines, EMachine)
 import Transform exposing (Transforms)
 
 type Type = Input | Output
@@ -42,23 +42,43 @@ isValidEndpoint components id =
   (MaybeE.isJust (Machine.getMachine components id))
     || (MaybeE.isJust (Input.getInput components id))
 
-{-
-isValidEndpoint : Connections (Machines a) -> EntityId -> Bool
-  case Machine.getMachine components id of
-    Just machine ->
-      Set.toList machine.connections
-        |> List.filterMap (getConnection components)
-        |> List.all (.to >> .id >> (/=) id)
-    Nothing ->
-      True
--}
+machineHasConnectionTo : Connections a -> EntityId -> EMachine -> Bool
+machineHasConnectionTo components sinkId =
+  .connections
+    >> Set.toList
+    >> List.filterMap (getConnection components)
+    >> List.any (.to >> .id >> (==) sinkId)
 
-from : Machines (Transforms (Inputs a)) -> EntityId -> EntityId -> Maybe Connection
+-- get machine potentially containing connections to given endpoint
+getMachineWithConnectionsTo : Inputs (Transforms (Machines a)) -> Endpoint -> Maybe EMachine
+getMachineWithConnectionsTo components to =
+  case to.typ of
+    Input ->
+      to.id
+        |> Input.getParent components
+        |> Maybe.andThen (Transform.getParent components)
+        |> Maybe.andThen (Machine.getMachine components)
+    Output ->
+      to.id |> Machine.getMachine components
+
+hasUnconnectedSink : Machines (Transforms (Inputs (Connections a))) -> Connection -> Bool
+hasUnconnectedSink components connection =
+  getMachineWithConnectionsTo components connection.to
+    |> Maybe.map (not << machineHasConnectionTo components connection.to.id)
+    |> Maybe.withDefault True
+
+from : Connections (Machines (Transforms (Inputs a))) -> EntityId -> EntityId -> Maybe Connection
 from components id1 id2 =
+  orientSourceSink components id1 id2
+    |> MaybeE.filter (hasUnconnectedSink components)
+
+orientSourceSink : Machines (Transforms (Inputs a)) -> EntityId -> EntityId -> Maybe Connection
+orientSourceSink components id1 id2 =
   let
     isMachine = Machine.getMachine components >> MaybeE.isJust
     contains = Transform.isParentOf components
   in
+  -- TODO: refactor!
   case ( isMachine id1, isMachine id2 ) of
     -- both machine outputs
     ( True, True ) ->
@@ -114,4 +134,4 @@ from components id1 id2 =
         (Transform.getParent components id1)
         (Input.getParent components id2)
         |> MaybeE.join
-    ( False, True ) -> from components id2 id1
+    ( False, True ) -> orientSourceSink components id2 id1
