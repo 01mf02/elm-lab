@@ -72,44 +72,41 @@ from components id1 id2 =
   orientSourceSink components id1 id2
     |> MaybeE.filter (hasUnconnectedSink components)
 
+orientOutputs components id1 id2 =
+  if Transform.isParentOf components id1 id2
+  then
+    { from = { id = id1, typ = Output }
+    , to = { id = id2, typ = Output }
+    , machine = id2
+    } |> Just
+  else Nothing
+
+orientInputs components id1 id2 machine1 machine2 =
+  if Transform.isParentOf components machine1 machine2
+  then
+    { from = { id = id2, typ = Input }
+    , to = { id = id1, typ = Input }
+    , machine = machine2
+    } |> Just
+  else Nothing
+
 orientSourceSink : Machines (Transforms (Inputs a)) -> EntityId -> EntityId -> Maybe Connection
 orientSourceSink components id1 id2 =
   let
     isMachine = Machine.getMachine components >> MaybeE.isJust
-    contains = Transform.isParentOf components
   in
   -- TODO: refactor!
   case ( isMachine id1, isMachine id2 ) of
     -- both machine outputs
     ( True, True ) ->
-      if contains id1 id2
-      then Just { from = { id = id1, typ = Output }
-                , to = { id = id2, typ = Output }
-                , machine = id2
-                }
-      else
-        if contains id2 id1
-        then Just { from = { id = id2, typ = Output }
-                  , to = { id = id1, typ = Output }
-                  , machine = id1
-                  }
-        else Nothing
+      orientOutputs components id1 id2
+        |> MaybeE.orElseLazy (\() -> orientOutputs components id2 id1)
     -- both machine inputs
     ( False, False ) ->
       Maybe.map2
         (\machine1 machine2 ->
-          if contains machine1 machine2
-          then Just { from = { id = id2, typ = Input }
-                    , to = { id = id1, typ = Input }
-                    , machine = machine2
-                    }
-          else
-            if contains machine2 machine1
-            then Just { from = { id = id1, typ = Input }
-                      , to = { id = id2, typ = Input }
-                      , machine = machine1
-                      }
-            else Nothing
+          orientInputs components id1 id2 machine1 machine2
+            |> MaybeE.orElseLazy (\() -> orientInputs components id2 id1 machine2 machine1)
         )
         (Input.getParent components id1)
         (Input.getParent components id2)
@@ -124,7 +121,7 @@ orientSourceSink components id1 id2 =
                     , machine = parent2
                     }
           else
-            if contains parent2 parent1
+            if Transform.isParentOf components parent2 parent1
             then Just { from = { id = id1, typ = Output }
                       , to = { id = id2, typ = Input }
                       , machine = parent1
