@@ -14,6 +14,8 @@ import Dict.Extra as DictE
 import Maybe.Extra as MaybeE
 import BoundingBox2d exposing (BoundingBox2d)
 import Frame2d
+import Geometry.Svg as Svg
+import LineSegment2d
 import Point2d exposing (Point2d)
 import Rectangle2d
 import Vector2d
@@ -221,7 +223,11 @@ update msg model =
         ConnectMode maybeClickHover ->
           case updateClickHover maybeClickHover of
             Nothing ->
-              noCmd { model | mode = ConnectMode (Just (initClickHover mouseEvent)) }
+              if Connection.isValidEndpoint model.components mouseEvent.id
+              then
+                noCmd { model | mode = ConnectMode (Just (initClickHover mouseEvent)) }
+              else
+                noCmd model
             Just { clicked, hovering } ->
               case Connection.from model.components clicked.id hovering.id of
                 Nothing -> noCmd model
@@ -244,6 +250,9 @@ update msg model =
 
         MachineMode maybeClickHover ->
           noCmd { model | mode = MachineMode (updateClickHover maybeClickHover) }
+
+        ConnectMode maybeClickHover ->
+          noCmd { model | mode = ConnectMode (updateClickHover maybeClickHover) }
 
         _ -> noCmd model
 
@@ -353,11 +362,22 @@ drawSvg model =
         _ -> model.components
 
     rootChildren = Transform.getChildren components rootTransformId
+
+    additional =
+      case model.mode of
+        ConnectMode (Just { clicked, hovering }) ->
+          let valid = MaybeE.isJust (Connection.from model.components clicked.id hovering.id)
+          in
+          View.Machine.connectionPoint model.components clicked.id
+            |> Maybe.map (\point -> LineSegment2d.from hovering.point point |> Svg.lineSegment2d [ SA.class "connection", SA.id "creating", SA.class (if valid then "valid" else "invalid") ])
+            |> MaybeE.toList
+        _ -> []
+
   in
   foldl2
     (\id machine transform ->
       (::) (drawEMachine components id machine transform)
-    ) [] (DictE.keepOnly rootChildren components.machines) components.transforms
+    ) additional (DictE.keepOnly rootChildren components.machines) components.transforms
     |> (::) (View.Background.draw rootTransformId)
     |> List.map (Svg.map PointerMsg)
 

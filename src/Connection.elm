@@ -1,5 +1,8 @@
 module Connection exposing (..)
 
+import Dict exposing (Dict)
+import Set
+
 import Maybe.Extra as MaybeE
 
 import Entity exposing (EntityId)
@@ -26,6 +29,29 @@ type alias Connection =
   , to : Endpoint
   , machine : EntityId
   }
+
+type alias Connections a =
+  { a | connections : Dict EntityId Connection }
+
+getConnection : Connections a -> EntityId -> Maybe Connection
+getConnection components id =
+  Dict.get id components.connections
+
+isValidEndpoint : Machines (Inputs a) -> EntityId -> Bool
+isValidEndpoint components id =
+  (MaybeE.isJust (Machine.getMachine components id))
+    || (MaybeE.isJust (Input.getInput components id))
+
+{-
+isValidEndpoint : Connections (Machines a) -> EntityId -> Bool
+  case Machine.getMachine components id of
+    Just machine ->
+      Set.toList machine.connections
+        |> List.filterMap (getConnection components)
+        |> List.all (.to >> .id >> (/=) id)
+    Nothing ->
+      True
+-}
 
 from : Machines (Transforms (Inputs a)) -> EntityId -> EntityId -> Maybe Connection
 from components id1 id2 =

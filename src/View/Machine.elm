@@ -153,8 +153,30 @@ transformEdgePoint components fn machineId =
     (Dict.get machineId components.transforms)
     (Dict.get machineId components.machines)
 
+connectionPoint components id =
+  case Machine.getMachine components id of
+    Just machine ->
+      machine.rectangle
+        |> Rectangle2d.edges
+        |> outputMidPoint
+        |> Point2d.placeIn (Transform.placeInRoot components id)
+        |> Just
+    Nothing ->
+      Maybe.map3
+        (\input parentId parentMachine ->
+          parentMachine.rectangle
+            |> Rectangle2d.edges
+            |> (\edges -> inputMidPoint edges input)
+            |> Point2d.placeIn (Transform.placeInRoot components parentId)
+        )
+      (Input.getInput components id)
+      (Input.getParent components id)
+      (Input.getParent components id |> Maybe.andThen (Machine.getMachine components))
 
-drawConnection : Components -> EMachine -> Connection -> Svg msg
+
+
+
+drawConnection : Components -> EMachine -> Connection -> Maybe (Svg msg)
 drawConnection components machine { from, to } =
   let
     edges = Rectangle2d.edges machine.rectangle
@@ -177,7 +199,6 @@ drawConnection components machine { from, to } =
   Maybe.map2
     (\start end -> LineSegment2d.from start end |> Svg.lineSegment2d attributes)
     maybeStart maybeEnd
-    |> Maybe.withDefault (Svg.g [] [])
 
 
 drawConnections : Components -> EMachine -> List (Svg msg)
@@ -185,9 +206,8 @@ drawConnections components machine =
   machine.connections
     |> Set.toList
     |> List.filterMap
-         (\id ->
-           Dict.get id components.connections
-             |> Maybe.map (drawConnection components machine)
+         (Connection.getConnection components
+           >> Maybe.andThen (drawConnection components machine)
          )
 
 

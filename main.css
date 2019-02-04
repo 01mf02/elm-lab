@@ -46,9 +46,24 @@
   stroke-dashoffset: calc(var(--ms-elapsed)/100);
 }
 
+#svg .connection {
+  stroke-width: 3;
+}
+
 #svg .machine .connection {
   stroke: black;
-  stroke-width: 3;
+}
+
+#svg .connection#creating {
+  pointer-events: none;
+}
+
+#svg .connection#creating.valid {
+  stroke: green;
+}
+
+#svg .connection#creating.invalid {
+  stroke: red;
 }
 
 
