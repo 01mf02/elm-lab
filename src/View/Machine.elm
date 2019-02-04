@@ -126,6 +126,7 @@ drawInput id ( left, right ) =
     attributes =
       [ SA.class "input"
       , SE.on "click" <| JD.map (Clicked id) <| Pointer.pageCoordDecoder
+      , SE.on "mousemove" <| JD.map (MouseMoved id) <| Pointer.pageCoordDecoder
       ]
     vertices = left ++ right
   in
