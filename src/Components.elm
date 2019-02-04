@@ -136,7 +136,19 @@ setInvalid id components =
 
 -- remove children?
 deleteEntity : EntityId -> Components -> Components
-deleteEntity id components =
+deleteEntity id =
+  deleteSpecific id >> deleteGeneric id
+
+deleteSpecific : EntityId -> Components -> Components
+deleteSpecific id components =
+  if Dict.member id components.machines
+  then deleteMachine id components
+  else if Dict.member id components.inputs
+  then deleteInput id components
+  else components
+
+deleteGeneric : EntityId -> Components -> Components
+deleteGeneric id components =
   { nextId = components.nextId
   , names = Dict.remove id components.names
   , machines = Dict.remove id components.machines
@@ -146,3 +158,73 @@ deleteEntity id components =
   , svgClasses = Dict.remove id components.svgClasses
   , invalids = Set.remove id components.invalids
   }
+
+deleteMachine : EntityId -> Components -> Components
+deleteMachine id components =
+  case getMachine components id of
+    Nothing -> components
+    Just machine ->
+      let
+        validConnection =
+          Connection.getConnection components
+            >> Maybe.map (\connection -> connection.from.id /= id)
+            >> Maybe.withDefault False
+        updateParent parentMachine =
+          { parentMachine | connections = Set.filter validConnection parentMachine.connections }
+        updateMachines =
+          case Transform.getParent components id of
+            Nothing -> identity
+            Just parentId -> Dict.update parentId (Maybe.map updateParent)
+      in
+
+      -- TODO: delete inside connections
+      List.foldl deleteInput components machine.inputs
+        |> (\components_ -> { components_ | machines = updateMachines components_.machines })
+        |> deleteGeneric id
+
+
+
+-- TODO: refactor!
+deleteInputSurrounding inputId components =
+  let
+    surrounding =
+      Input.getParent components inputId
+        |> Maybe.andThen (Transform.getParent components)
+    validConnection =
+      Connection.getConnection components
+        >> Maybe.map (Connection.hasEndpoint inputId >> not)
+        >> Maybe.withDefault False
+    updateMachine machine =
+      { machine | connections = Set.filter validConnection machine.connections }
+  in
+  case surrounding of
+    Nothing -> identity
+    Just m -> Dict.update m (Maybe.map updateMachine)
+
+deleteInputInside inputId components =
+  let
+    parentId = Input.getParent components inputId
+    validConnection =
+      Connection.getConnection components
+        >> Maybe.map (Connection.hasEndpoint inputId >> not)
+        >> Maybe.withDefault False
+    updateMachine machine =
+      { machine | connections = Set.filter validConnection machine.connections }
+  in
+  case parentId of
+    Nothing -> identity
+    Just m -> Dict.update m (Maybe.map updateMachine)
+
+
+deleteInput : EntityId -> Components -> Components
+deleteInput inputId components =
+  case Input.getInput components inputId of
+    Nothing -> components
+    Just input ->
+      let
+        updateMachines =
+          deleteInputInside inputId components
+            >> deleteInputSurrounding inputId components
+      in
+      { components | machines = updateMachines components.machines }
+        |> deleteGeneric inputId

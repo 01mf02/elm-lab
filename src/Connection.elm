@@ -24,6 +24,7 @@ type alias Endpoint =
   , typ : Type
   }
 
+-- TODO: rename to source/sink
 type alias Connection =
   { from : Endpoint
   , to : Endpoint
@@ -36,6 +37,10 @@ type alias Connections a =
 getConnection : Connections a -> EntityId -> Maybe Connection
 getConnection components id =
   Dict.get id components.connections
+
+hasEndpoint : EntityId -> Connection -> Bool
+hasEndpoint id connection =
+  connection.from.id == id || connection.to.id == id
 
 isValidEndpoint : Machines (Inputs a) -> EntityId -> Bool
 isValidEndpoint components id =
