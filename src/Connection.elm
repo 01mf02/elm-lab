@@ -54,6 +54,28 @@ machineHasConnectionTo components sinkId =
     >> List.filterMap (getConnection components)
     >> List.any (.to >> .id >> (==) sinkId)
 
+machineConnections components id =
+  Maybe.map2
+    (\machine parentMachine ->
+      let
+        withConnection fn connectionId =
+          getConnection components connectionId
+            |> Maybe.map fn
+            |> Maybe.withDefault False
+        isIngoing connection =
+          List.any ((==) connection.to.id) machine.inputs
+        isOutgoing connection =
+          connection.from.id == id
+        ingoing = Set.filter (withConnection isIngoing) parentMachine.connections
+        outgoing = Set.filter (withConnection isOutgoing) parentMachine.connections
+      in
+      ( ingoing, outgoing )
+    )
+    (Machine.getMachine components id)
+    (Transform.getParent components id |> Maybe.andThen (Machine.getMachine components))
+    |> Maybe.withDefault ( Set.empty, Set.empty )
+
+
 -- get machine potentially containing connections to given endpoint
 getMachineWithConnectionsTo : Inputs (Transforms (Machines a)) -> Endpoint -> Maybe EMachine
 getMachineWithConnectionsTo components to =
@@ -66,16 +88,16 @@ getMachineWithConnectionsTo components to =
     Output ->
       to.id |> Machine.getMachine components
 
-hasUnconnectedSink : Machines (Transforms (Inputs (Connections a))) -> Connection -> Bool
-hasUnconnectedSink components connection =
+hasConnectedSink : Machines (Transforms (Inputs (Connections a))) -> Connection -> Bool
+hasConnectedSink components connection =
   getMachineWithConnectionsTo components connection.to
-    |> Maybe.map (not << machineHasConnectionTo components connection.to.id)
-    |> Maybe.withDefault True
+    |> Maybe.map (machineHasConnectionTo components connection.to.id)
+    |> Maybe.withDefault False
 
 from : Connections (Machines (Transforms (Inputs a))) -> EntityId -> EntityId -> Maybe Connection
 from components id1 id2 =
   orientSourceSink components id1 id2
-    |> MaybeE.filter (hasUnconnectedSink components)
+    |> MaybeE.filter (not << hasConnectedSink components)
 
 orientOutputs components id1 id2 =
   if Transform.isParentOf components id1 id2

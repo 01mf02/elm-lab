@@ -292,14 +292,19 @@ isValidMoveMachine { clicked, hovering } components =
 
         hoveringChildren = Transform.getChildren components hovering.id
         hoveringMachines =
-          DictE.keepOnly hoveringChildren components.machines
-            |> Dict.filter (\id _ -> id /= clicked.id)
+          components.machines
+            |> DictE.keepOnly (Set.filter ((/=) clicked.id) hoveringChildren)
+
+        noInOrOutgoing ( ingoing, outgoing ) = Set.isEmpty ingoing && Set.isEmpty outgoing
 
         containsClicked hoveringRect =
           BoundingBox2d.isContainedIn hoveringRect clickedRect
         intersectsClicked id machine =
           BoundingBox2d.intersects clickedRect (boundingBox id machine)
       in
+      ((Set.member clicked.id hoveringChildren)
+        || (noInOrOutgoing (Connection.machineConnections components clicked.id)))
+      &&
       (Maybe.map containsClicked maybeHoveringRect |> Maybe.withDefault True)
       &&
       Dict.foldl (\id machine -> (&&) (not (intersectsClicked id machine)))
@@ -397,7 +402,7 @@ view model =
             (drawSvg model)
         ]
     , H.footer []
-        [ H.text "Hello World!"
+        [ H.text "Welcome to Lazy Machines."
         ]
     ]
 
