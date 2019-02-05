@@ -25,6 +25,7 @@ type alias Endpoint =
   }
 
 -- TODO: rename to source/sink
+-- TODO: remove machine field?
 type alias Connection =
   { from : Endpoint
   , to : Endpoint
@@ -76,21 +77,26 @@ machineConnections components id =
     |> Maybe.withDefault ( Set.empty, Set.empty )
 
 
+getEndpointMachine components endpoint =
+  case endpoint.typ of
+    Input -> Input.getParent components endpoint.id
+    Output -> Just endpoint.id
+
 -- get machine potentially containing connections to given endpoint
-getMachineWithConnectionsTo : Inputs (Transforms (Machines a)) -> Endpoint -> Maybe EMachine
+getMachineWithConnectionsTo : Inputs (Transforms (Machines a)) -> Endpoint -> Maybe EntityId
 getMachineWithConnectionsTo components to =
   case to.typ of
     Input ->
       to.id
         |> Input.getParent components
         |> Maybe.andThen (Transform.getParent components)
-        |> Maybe.andThen (Machine.getMachine components)
     Output ->
-      to.id |> Machine.getMachine components
+      Just to.id
 
 hasConnectedSink : Machines (Transforms (Inputs (Connections a))) -> Connection -> Bool
 hasConnectedSink components connection =
   getMachineWithConnectionsTo components connection.to
+    |> Maybe.andThen (Machine.getMachine components)
     |> Maybe.map (machineHasConnectionTo components connection.to.id)
     |> Maybe.withDefault False
 
@@ -122,7 +128,6 @@ orientSourceSink components id1 id2 =
   let
     isMachine = Machine.getMachine components >> MaybeE.isJust
   in
-  -- TODO: refactor!
   case ( isMachine id1, isMachine id2 ) of
     -- both machine outputs
     ( True, True ) ->

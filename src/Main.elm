@@ -315,6 +315,26 @@ isValidMoveMachine { clicked, hovering } components =
     |> Maybe.withDefault False
     |> ((||) (clicked == hovering))
 
+connectionsOfCapturedMachinesCaptured components capturedSet =
+  let
+    all fn = Set.toList >> List.all fn
+
+    validConnection field connectionId =
+      Connection.getConnection components connectionId
+        |> Maybe.andThen (field >> Connection.getEndpointMachine components)
+        |> Maybe.map (\machineId -> Set.member machineId capturedSet)
+        |> Maybe.withDefault False
+
+    validCaptured capturedId =
+      let
+        ( incoming, outgoing ) = Connection.machineConnections components capturedId
+      in
+      all (validConnection .from) incoming
+        && all (validConnection .to) outgoing
+  in
+  all validCaptured capturedSet
+
+
 isValidNewMachine : ClickHover -> Components -> Maybe (Set EntityId)
 isValidNewMachine { clicked, hovering } components =
   if clicked.id == hovering.id
@@ -340,6 +360,7 @@ isValidNewMachine { clicked, hovering } components =
               else Just inside
           )
       ) (Just Set.empty) childMachines
+      |> MaybeE.filter (connectionsOfCapturedMachinesCaptured components)
   else
     Nothing
 
