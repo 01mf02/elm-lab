@@ -109,10 +109,17 @@ addConnection connection components =
   let
     updateMachine machine =
       { machine | connections = Set.insert components.nextId machine.connections }
+    updateMachines machines =
+      Maybe.map
+        (\connectionMachine ->
+          Dict.update connectionMachine (Maybe.map updateMachine) machines
+        )
+        (Connection.getMachineField components connection)
+        |> Maybe.withDefault machines
   in
   ( { components
       | nextId = components.nextId + 1
-      , machines = Dict.update connection.machine (Maybe.map updateMachine) components.machines
+      , machines = updateMachines components.machines
       , connections = Dict.insert components.nextId connection components.connections
     }
   , components.nextId

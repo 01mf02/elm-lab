@@ -25,11 +25,9 @@ type alias Endpoint =
   }
 
 -- TODO: rename to source/sink
--- TODO: remove machine field?
 type alias Connection =
   { from : Endpoint
   , to : Endpoint
-  , machine : EntityId
   }
 
 type alias Connections a =
@@ -110,7 +108,6 @@ orientOutputs components id1 id2 =
   then
     { from = { id = id1, typ = Output }
     , to = { id = id2, typ = Output }
-    , machine = id2
     } |> Just
   else Nothing
 
@@ -119,9 +116,16 @@ orientInputs components id1 id2 machine1 machine2 =
   then
     { from = { id = id2, typ = Input }
     , to = { id = id1, typ = Input }
-    , machine = machine2
     } |> Just
   else Nothing
+
+getMachineField components connection =
+  case connection.from.typ of
+    Input -> Input.getParent components connection.from.id
+    Output ->
+      case connection.to.typ of
+        Output -> Just connection.to.id
+        Input -> Transform.getParent components connection.from.id
 
 orientSourceSink : Machines (Transforms (Inputs a)) -> EntityId -> EntityId -> Maybe Connection
 orientSourceSink components id1 id2 =
@@ -150,13 +154,11 @@ orientSourceSink components id1 id2 =
           if parent2 == id1
           then Just { from = { id = id2, typ = Input }
                     , to = { id = id1, typ = Output }
-                    , machine = parent2
                     }
           else
             if Transform.isParentOf components parent2 parent1
             then Just { from = { id = id1, typ = Output }
                       , to = { id = id2, typ = Input }
-                      , machine = parent1
                       }
             else Nothing
         )

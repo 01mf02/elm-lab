@@ -144,6 +144,17 @@ initialModel =
 noCmd model =
   ( model, Cmd.none )
 
+updateMachine fn machineId components =
+  { components | machines = Dict.update machineId (Maybe.map fn) components.machines }
+
+capturedConnections components =
+  Set.foldl
+    (\capturedMachineId ->
+      let (incoming, outgoing) = Connection.machineConnections components capturedMachineId
+      in Set.union incoming >> Set.union outgoing
+    )
+    Set.empty
+
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
   case msg of
@@ -180,11 +191,19 @@ update msg model =
               case isValidNewMachine clickHover model.components of
                 Just inside ->
                   let
+                    captured = capturedConnections model.components inside
+                    removeConnectionsFrom machine =
+                      { machine | connections = Set.diff machine.connections captured }
+                    addConnectionsTo machine =
+                      { machine | connections = Set.union machine.connections captured }
+
                     components =
                       addEmptyMachine clickHover.clicked.point clickHover.hovering.point model.components
                         |> (\(components_, newId) ->
                              Transform.adoptBy id newId components_
                              |> (\components__ -> Set.foldl (Transform.adoptBy newId) components__ inside)
+                             |> updateMachine removeConnectionsFrom clickHover.hovering.id
+                             |> updateMachine addConnectionsTo newId
                            )
                   in
                   noCmd { model | components = components, mode = initialMachineMode }
