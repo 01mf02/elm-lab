@@ -428,62 +428,71 @@ drawSvg model =
     |> (::) (View.Background.draw rootTransformId)
     |> List.map (Svg.map PointerMsg)
 
-svgRadioButton attributes src =
+svgRadioButton attributes { title, src } =
   H.label
     []
     [ H.input (HA.type_ "radio" :: attributes) []
-    , H.img [ HA.src src ] []
+    , H.img [ HA.title title, HA.src src ] []
     ]
 
-toolbox : Model -> List (Html Msg)
-toolbox model =
-  let
-    isTransformMode mode =
-      case mode of
-        TransformMode _ -> True
-        _ -> False
-    isMachineMode mode =
-      case mode of
-        MachineMode _ -> True
-        _ -> False
-    isConnectMode mode =
-      case mode of
-        ConnectMode _ -> True
-        _ -> False
-  in
+isTransformMode mode =
+  case mode of
+    TransformMode _ -> True
+    _ -> False
+isMachineMode mode =
+  case mode of
+    MachineMode _ -> True
+    _ -> False
+isConnectMode mode =
+  case mode of
+    ConnectMode _ -> True
+    _ -> False
+
+toolbar : Mode -> List (Html Msg)
+toolbar mode =
   [ svgRadioButton
       [ HE.onClick (ModeChanged initialMachineMode)
-      , HA.checked (isMachineMode model.mode)
+      , HA.checked (isMachineMode mode)
+      , HA.title "test"
       ]
-      "assets/baseline-add-24px.svg"
+      { title = "make machine (m)"
+      , src = "assets/baseline-add-24px.svg"
+      }
   , svgRadioButton
       [ HE.onClick (ModeChanged InputMode)
-      , HA.checked (model.mode == InputMode)
+      , HA.checked (mode == InputMode)
       ]
-      "assets/baseline-input-24px.svg"
+      { title = "insert input (i)"
+      , src = "assets/baseline-input-24px.svg"
+      }
   , svgRadioButton
       [ HE.onClick (ModeChanged initialConnectMode)
-      , HA.checked (isConnectMode model.mode)
+      , HA.checked (isConnectMode mode)
       ]
-      "assets/baseline-link-24px.svg"
+      { title = "connect (c)"
+      , src = "assets/baseline-link-24px.svg"
+      }
   , svgRadioButton
       [ HE.onClick (ModeChanged initialTransformMode)
-      , HA.checked (isTransformMode model.mode)
+      , HA.checked (isTransformMode mode)
       ]
-      "assets/baseline-edit-24px.svg"
+      { title = "transform (t)"
+      , src = "assets/baseline-edit-24px.svg"
+      }
   , svgRadioButton
       [ HE.onClick (ModeChanged DeleteMode)
-      , HA.checked (model.mode == DeleteMode)
+      , HA.checked (mode == DeleteMode)
       ]
-      "assets/baseline-delete-24px.svg"
+      { title = "delete (d)"
+      , src = "assets/baseline-delete-24px.svg"
+      }
   ]
 
 
 view : Model -> Html Msg
 view model =
-  H.div []
-    [
-      H.aside [] (toolbox model)
+  H.div [ HA.id "container" ]
+    [ H.aside [] (toolbar model.mode)
     , H.main_ []
         [ Svg.svg
             [ SA.width "800px"
