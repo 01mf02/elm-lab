@@ -15,6 +15,31 @@
  * <https://developer.mozilla.org/en-US/docs/Learn/CSS/Introduction_to_CSS>
  */
 
+
+aside img {
+  width: 48px;
+  height: auto;
+}
+
+input[type="radio"] {
+  display: none;
+}
+
+input + img {
+  transition-duration: 0.4s;
+}
+
+input:hover + img {
+  background-color: #4CAF50; /* Green */
+}
+
+input:checked + img {
+  background-color: #4CAF50; /* Green */
+}
+
+
+
+
 #svg .machine .contour {
   stroke: #5184AF;
   stroke-width: 10;

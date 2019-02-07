@@ -4,6 +4,8 @@ import Browser
 import Browser.Events
 import Dict exposing (Dict)
 import Html as H exposing (Html)
+import Html.Attributes as HA
+import Html.Events as HE
 import Json.Decode as JD
 import Set exposing (Set)
 import Svg exposing (Svg)
@@ -135,7 +137,7 @@ init _ =
   )
 
 initialModel =
-  { mode = DeleteMode
+  { mode = initialMachineMode
   , components = testComponents
   , screenCtm = Ctm.unit
   , msElapsed = 0
@@ -426,12 +428,62 @@ drawSvg model =
     |> (::) (View.Background.draw rootTransformId)
     |> List.map (Svg.map PointerMsg)
 
+svgRadioButton attributes src =
+  H.label
+    []
+    [ H.input (HA.type_ "radio" :: attributes) []
+    , H.img [ HA.src src ] []
+    ]
+
+toolbox : Model -> List (Html Msg)
+toolbox model =
+  let
+    isTransformMode mode =
+      case mode of
+        TransformMode _ -> True
+        _ -> False
+    isMachineMode mode =
+      case mode of
+        MachineMode _ -> True
+        _ -> False
+    isConnectMode mode =
+      case mode of
+        ConnectMode _ -> True
+        _ -> False
+  in
+  [ svgRadioButton
+      [ HE.onClick (ModeChanged initialMachineMode)
+      , HA.checked (isMachineMode model.mode)
+      ]
+      "assets/baseline-add-24px.svg"
+  , svgRadioButton
+      [ HE.onClick (ModeChanged InputMode)
+      , HA.checked (model.mode == InputMode)
+      ]
+      "assets/baseline-input-24px.svg"
+  , svgRadioButton
+      [ HE.onClick (ModeChanged initialConnectMode)
+      , HA.checked (isConnectMode model.mode)
+      ]
+      "assets/baseline-link-24px.svg"
+  , svgRadioButton
+      [ HE.onClick (ModeChanged initialTransformMode)
+      , HA.checked (isTransformMode model.mode)
+      ]
+      "assets/baseline-edit-24px.svg"
+  , svgRadioButton
+      [ HE.onClick (ModeChanged DeleteMode)
+      , HA.checked (model.mode == DeleteMode)
+      ]
+      "assets/baseline-delete-24px.svg"
+  ]
+
+
 view : Model -> Html Msg
 view model =
   H.div []
     [
-      H.aside []
-        []
+      H.aside [] (toolbox model)
     , H.main_ []
         [ Svg.svg
             [ SA.width "800px"
