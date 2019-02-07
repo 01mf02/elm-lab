@@ -439,10 +439,12 @@ isTransformMode mode =
   case mode of
     TransformMode _ -> True
     _ -> False
+
 isMachineMode mode =
   case mode of
     MachineMode _ -> True
     _ -> False
+
 isConnectMode mode =
   case mode of
     ConnectMode _ -> True
@@ -453,7 +455,6 @@ toolbar mode =
   [ svgRadioButton
       [ HE.onClick (ModeChanged initialMachineMode)
       , HA.checked (isMachineMode mode)
-      , HA.title "test"
       ]
       { title = "make machine (m)"
       , src = "assets/baseline-add-24px.svg"
@@ -495,9 +496,8 @@ view model =
     [ H.aside [] (toolbar model.mode)
     , H.main_ []
         [ Svg.svg
-            [ SA.width "800px"
-            , SA.height "600px"
-            , SA.viewBox "0 0 800 600"
+            [ SA.width "100%"
+            , SA.height "100%"
             , SA.id svgElementId
             ]
             (drawSvg model)
