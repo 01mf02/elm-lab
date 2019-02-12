@@ -12,6 +12,7 @@ type alias ConstrName = String
 type MachineType
   = TConstr ConstrName
   | TAbs
+  | Ghost
   | TReference String
 
 type alias EMachine =
@@ -21,11 +22,11 @@ type alias EMachine =
   , rectangle : Rectangle2d
   }
 
-emptyMachine : Rectangle2d -> EMachine
-emptyMachine rectangle =
+emptyMachine : MachineType -> Rectangle2d -> EMachine
+emptyMachine typ rectangle =
   { inputs = []
   , connections = Set.empty
-  , machineType = TAbs
+  , machineType = typ
   , rectangle = rectangle
   }
 

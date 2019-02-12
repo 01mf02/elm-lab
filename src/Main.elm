@@ -46,8 +46,8 @@ main =
     }
 
 
-addEmptyMachine : Point2d -> Point2d -> Components -> ( Components, EntityId )
-addEmptyMachine from to =
+addEmptyMachine : MachineType -> Point2d -> Point2d -> Components -> ( Components, EntityId )
+addEmptyMachine typ from to =
   let
     rectangleGlobal = Rectangle2d.from from to
     machineFrame = Rectangle2d.axes rectangleGlobal
@@ -55,9 +55,11 @@ addEmptyMachine from to =
     rootTransform = Transform.root
   in
     Components.addMachine
-      (emptyMachine rectangleLocal)
+      (emptyMachine typ rectangleLocal)
       { rootTransform | frame = machineFrame }
 
+addEmptyAbs = addEmptyMachine Machine.TAbs
+addEmptyGhost = addEmptyMachine Machine.Ghost
 
 testComponents : Components
 testComponents =
@@ -65,9 +67,9 @@ testComponents =
     global = Point2d.fromCoordinates
   in
   initialComponents
-    |> addEmptyMachine (global ( 120, 120 )) (global ( 180, 180 ))
+    |> addEmptyAbs (global ( 120, 120 )) (global ( 180, 180 ))
     |> (\( components, childId ) ->
-       addEmptyMachine (global ( 100, 100 )) (global ( 400, 400 ))
+       addEmptyAbs (global ( 100, 100 )) (global ( 400, 400 ))
          components
          |> (\( components_, parentId ) ->
               nameEntity parentId "test" components_
@@ -107,6 +109,7 @@ setHovering mouseEvent clickHover =
 type Mode
   = ConnectMode (Maybe ClickHover)
   | MachineMode (Maybe ClickHover)
+  | GhostMode (Maybe ClickHover)
   | InputMode
   | DeleteMode
   | TransformMode (Maybe ClickHover)
@@ -116,6 +119,9 @@ initialTransformMode =
 
 initialMachineMode =
   MachineMode Nothing
+
+initialGhostMode =
+  GhostMode Nothing
 
 initialConnectMode =
   ConnectMode Nothing
@@ -200,7 +206,7 @@ update msg model =
                       { machine | connections = Set.union machine.connections captured }
 
                     components =
-                      addEmptyMachine clickHover.clicked.point clickHover.hovering.point model.components
+                      addEmptyAbs clickHover.clicked.point clickHover.hovering.point model.components
                         |> (\(components_, newId) ->
                              Transform.adoptBy id newId components_
                              |> (\components__ -> Set.foldl (Transform.adoptBy newId) components__ inside)
@@ -211,6 +217,30 @@ update msg model =
                   noCmd { model | components = components, mode = initialMachineMode }
                 Nothing ->
                   noCmd model
+
+        GhostMode maybeClickHover ->
+          case updateClickHover maybeClickHover of
+            Nothing ->
+              let clickHover = initClickHover mouseEvent
+              in noCmd { model | mode = GhostMode (Just clickHover) }
+            Just clickHover ->
+              case isValidNewMachine clickHover model.components of
+                Just inside ->
+                  if Set.isEmpty inside
+                  then
+                    let
+                      components =
+                        addEmptyGhost clickHover.clicked.point clickHover.hovering.point model.components
+                          |> (\(components_, newId) ->
+                               Transform.adoptBy id newId components_
+                             )
+                    in
+                    noCmd { model | components = components, mode = initialGhostMode }
+                  else
+                    noCmd model
+                Nothing ->
+                  noCmd model
+
 
         TransformMode maybeClickHover ->
           case updateClickHover maybeClickHover of
@@ -271,6 +301,9 @@ update msg model =
 
         MachineMode maybeClickHover ->
           noCmd { model | mode = MachineMode (updateClickHover maybeClickHover) }
+
+        GhostMode maybeClickHover ->
+          noCmd { model | mode = GhostMode (updateClickHover maybeClickHover) }
 
         ConnectMode maybeClickHover ->
           noCmd { model | mode = ConnectMode (updateClickHover maybeClickHover) }
@@ -398,13 +431,22 @@ drawSvg model =
             |> setSvgClass move.clicked.id "moving"
             |> (if isValidMoveMachine move model.components then identity else setInvalid move.clicked.id)
         MachineMode (Just previous) ->
-          addEmptyMachine previous.clicked.point previous.hovering.point model.components
+          addEmptyAbs previous.clicked.point previous.hovering.point model.components
             |> (\( components_, childId ) ->
                  ( setSvgClass childId "creating" components_, childId )
                )
             |> (\(components_, childId) ->
                  Transform.adoptBy previous.clicked.id childId components_
                  |> (if isValidNewMachine previous model.components |> MaybeE.isJust then identity else setInvalid childId)
+               )
+        GhostMode (Just previous) ->
+          addEmptyGhost previous.clicked.point previous.hovering.point model.components
+            |> (\( components_, childId ) ->
+                 ( setSvgClass childId "creating" components_, childId )
+               )
+            |> (\(components_, childId) ->
+                 Transform.adoptBy previous.clicked.id childId components_
+                 |> (if isValidNewMachine previous model.components |> MaybeE.filter Set.isEmpty |> MaybeE.isJust then identity else setInvalid childId)
                )
         _ -> model.components
 
@@ -445,6 +487,11 @@ isMachineMode mode =
     MachineMode _ -> True
     _ -> False
 
+isGhostMode mode =
+  case mode of
+    GhostMode _ -> True
+    _ -> False
+
 isConnectMode mode =
   case mode of
     ConnectMode _ -> True
@@ -458,6 +505,13 @@ toolbar mode =
       ]
       { title = "make machine (m)"
       , src = "assets/baseline-add-24px.svg"
+      }
+  , svgRadioButton
+      [ HE.onClick (ModeChanged initialGhostMode)
+      , HA.checked (isGhostMode mode)
+      ]
+      { title = "ghost 👻 (g)"
+      , src = "assets/ghost.svg"
       }
   , svgRadioButton
       [ HE.onClick (ModeChanged InputMode)
@@ -516,6 +570,7 @@ keyHandler s =
   case s of
     "c" -> ModeChanged initialConnectMode
     "m" -> ModeChanged initialMachineMode
+    "g" -> ModeChanged initialGhostMode
     "i" -> ModeChanged InputMode
     "d" -> ModeChanged DeleteMode
     "t" -> ModeChanged initialTransformMode
