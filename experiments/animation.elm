@@ -1,4 +1,5 @@
 import Animation exposing (px)
+import Animation.Messenger
 import Browser
 import Html exposing (..)
 import Html.Attributes exposing (..)
@@ -18,8 +19,8 @@ main =
 
 
 type alias Model =
-    { buttonStyle : Animation.State
-    , rectStyle : Animation.State
+    { buttonStyle : Animation.Messenger.State Msg
+    , rectStyle : Animation.Messenger.State Msg
     }
 
 
@@ -75,11 +76,21 @@ update action model =
             )
 
         Animate animMsg ->
+            let
+                (newButtonStyle, buttonCmds) =
+                    Animation.Messenger.update
+                        animMsg
+                        model.buttonStyle
+                (newRectStyle, rectCmds) =
+                    Animation.Messenger.update
+                        animMsg
+                        model.rectStyle
+            in
             ( { model
-                | buttonStyle = Animation.update animMsg model.buttonStyle
-                , rectStyle = Animation.update animMsg model.rectStyle
+                | buttonStyle = newButtonStyle
+                , rectStyle = newRectStyle
               }
-            , Cmd.none
+            , Cmd.batch [ buttonCmds, rectCmds ]
             )
 
 rectAnimation =
@@ -93,6 +104,7 @@ rectAnimation =
        , Animation.to
            [ Animation.scale3d 2.0 1.0 1.0
            ]
+       , Animation.Messenger.send FadeInFadeOut
        ]
 
 view : Model -> Html Msg
