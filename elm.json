@@ -18,6 +18,7 @@
             "elm-community/list-extra": "8.1.0",
             "elm-community/maybe-extra": "5.0.0",
             "elm-community/result-extra": "2.2.1",
+            "elm-community/undo-redo": "3.0.0",
             "elm-explorations/test": "1.2.0",
             "ianmackenzie/elm-geometry": "1.2.1",
             "ianmackenzie/elm-geometry-svg": "1.0.2",
