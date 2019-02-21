@@ -1,10 +1,11 @@
-module Machine exposing (..)
+module Theory.Term exposing (..)
 
 import Dict exposing (Dict)
-import Builtin exposing (..)
-import Type exposing (..)
 import List.Extra as ListE
 import Result.Extra as ResultE
+
+import Theory.Builtin exposing (..)
+import Theory.Type as Type exposing (..)
 
 type alias MachineName = String
 

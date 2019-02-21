@@ -1,11 +1,11 @@
-module Typecheck exposing (..)
+module Theory.Typecheck exposing (..)
 
 import Array exposing (Array)
 import Dict exposing (Dict)
 
-import Type exposing (Type, ConstructorDict, TypeDict, FreshGen, Substitution, emptySubstitution, Arity, Arity(..), typeOfNameAndArity, typeOfCase, composeSubstitutions, typeConstructors, defaultTypes)
-import Machine exposing (..)
-import Builtin exposing (..)
+import Theory.Type as Type exposing (Type, ConstructorDict, TypeDict, FreshGen, Substitution, emptySubstitution, Arity, Arity(..), typeOfNameAndArity, typeOfCase, composeSubstitutions, typeConstructors, defaultTypes)
+import Theory.Term exposing (..)
+import Theory.Builtin exposing (..)
 
 
 -- for every machine variable, map to the corresponding type

@@ -1,4 +1,4 @@
-module Type exposing (..)
+module Theory.Type exposing (..)
 
 import Array exposing (Array)
 import Dict exposing (Dict)

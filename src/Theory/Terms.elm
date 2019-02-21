@@ -6,10 +6,10 @@ import Html exposing (Html)
 import Test
 import Graph exposing (Graph)
 
-import Typecheck exposing (..)
-import Machine exposing (..)
-import Builtin exposing (..)
-import Type exposing (Type, Arity(..))
+import Theory.Typecheck exposing (..)
+import Theory.Term exposing (..)
+import Theory.Builtin exposing (..)
+import Theory.Type as Type exposing (Type, Arity(..))
 
 
 

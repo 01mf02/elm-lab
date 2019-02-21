@@ -1,6 +1,6 @@
-module Builtin exposing (..)
+module Theory.Builtin exposing (..)
 
-import Type exposing (..)
+import Theory.Type as Type exposing (..)
 
 type Value
   = IntValue Int
