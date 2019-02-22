@@ -11,40 +11,45 @@ type Expr
   = EAbs VarId Expr
   | EApp Expr Expr
   | EVar VarId
+  | EFix Expr
+  | EInt Int
 
 type alias ThunkId = Int
 
-type Value =
-  VClosure (Thunk -> Cache -> Maybe ( Value, Cache ))
+type Value
+  = VClosure Env VarId Expr
+  | VInt Int
+
+valueToString value =
+  case value of
+    VInt n -> String.fromInt n
+    VClosure _ _ _ -> "<<closure>>"
 
 type alias Env = Dict VarId ThunkId
 type alias Cache = Array Thunk
 
-type Thunk =
-  Thunk (Cache -> Maybe ( Value, Cache ))
+type Thunk
+  = TValue Value
+  | TPending Env Expr
 
-
-updateThunk : ThunkId -> Value -> Cache -> Cache
-updateThunk ref v =
-  Array.set ref (Thunk (\cache -> Just ( v, cache )))
+updateThunk : ThunkId -> ( Value, Cache ) -> ( Value, Cache )
+updateThunk ref ( v, cache ) =
+  ( v, Array.set ref (TValue v) cache )
 
 force : ThunkId -> Cache -> Maybe ( Value, Cache )
 force ref cache =
   Array.get ref cache
-    |> Maybe.andThen (\(Thunk th) -> th cache)
-    |> Maybe.map (\( v, newCache ) -> ( v, updateThunk ref v newCache ))
+    |> Maybe.andThen
+      (\thunk ->
+        case thunk of
+          TValue v -> Just ( v, cache )
+          TPending env expr ->
+            eval env expr cache
+              |> Maybe.map (updateThunk ref)
+      )
 
 envInsert x a env =
   Dict.insert x a env
-
-mkClosure : Env -> VarId -> Expr -> (Thunk -> Cache -> Maybe ( Value, Cache ))
-mkClosure env var body =
-  \thunk cache ->
-    let
-      thunkId = Array.length cache
-      newCache = Array.push thunk cache
-    in
-      eval (envInsert var thunkId env) body newCache
 
 eval : Env -> Expr -> Cache -> Maybe ( Value, Cache )
 eval env ex cache =
@@ -53,20 +58,43 @@ eval env ex cache =
       Dict.get n env
         |> Maybe.andThen (\th -> force th cache)
   
-    EAbs x e -> Just (VClosure (mkClosure env x e), cache)
+    EAbs x e -> Just (VClosure env x e, cache)
   
     EApp a b -> 
-      eval env a cache
-        |> Maybe.andThen
-             (\(VClosure c, cache1) ->
-               c (Thunk (eval env b)) cache1
-             )
+      case eval env a cache of
+        Just (VClosure closEnv closVar closExpr, cache1) ->
+          let
+            thunk = TPending env b
+            thunkId = Array.length cache1
+            newCache = Array.push thunk cache1
+          in
+            eval (envInsert closVar thunkId closEnv) closExpr newCache
+
+        _ -> Nothing
+
+    EFix e -> eval env (EApp e (EFix e)) cache
+    EInt n -> Just (VInt n, cache)
+
+
+const = EAbs "x" (EAbs "y" (EVar "x"))
+
+diverge = EFix (EAbs "x" (EApp (EVar "x") (EVar "x")))
+
+-- omega = (\x -> x x) (\x -> x x)
+omega = EApp (EAbs "x" (EApp (EVar "x") (EVar "x")))
+             (EAbs "x" (EApp (EVar "x") (EVar "x")))
+
+-- test1 = (\y -> 42) omega
+test1 = EApp (EAbs "y" (EInt 42)) omega
+
+test2 = EApp (EApp const (EInt 42)) omega
 
 init =
   ()
 
 view model =
-  1
+  eval Dict.empty test2 Array.empty
+    |> Maybe.map (Tuple.first >> valueToString)
     |> Debug.toString
     |> Html.text
 
