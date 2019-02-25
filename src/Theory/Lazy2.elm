@@ -16,6 +16,13 @@ type Expr
 
 type alias ThunkId = Int
 
+{-
+Reading material:
+
+- <http://www.scs.stanford.edu/16wi-cs240h/slides/ghc-compiler.html>
+- <https://ghc.haskell.org/trac/ghc/wiki/Commentary/Rts/Storage/HeapObjects>
+- <https://www.microsoft.com/en-us/research/wp-content/uploads/1992/04/spineless-tagless-gmachine.pdf>
+-}
 type Value
   = VClosure Env VarId Expr
   | VInt Int
