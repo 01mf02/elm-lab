@@ -62,6 +62,12 @@ valueToString cache value =
 type alias Env = Dict VarId ThunkId
 type alias Cache = Array Thunk
 
+type alias State =
+  { cache : Cache
+  , types : Dict TypeId (List ConstrId)
+  , constructors : Dict ConstrId (Int, TypeId)
+  }
+
 type Thunk
   = TValue Value
   | TPending Env Expr
