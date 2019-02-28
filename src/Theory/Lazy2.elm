@@ -41,16 +41,16 @@ printList f l =
   then ""
   else "(" ++ String.join ", " (List.map f l) ++ ")"
 
-printThunk : Cache -> Thunk -> String
-printThunk cache thunk =
+printThunk : State -> Thunk -> String
+printThunk state thunk =
   case thunk of
-    TValue v -> valueToString cache v
+    TValue v -> valueToString state v
     TPending _ _ -> "<<thunk>>"
 
-printThunkId : Cache -> ThunkId -> String
-printThunkId cache thunkId =
-  Array.get thunkId cache
-    |> Maybe.map (printThunk cache)
+printThunkId : State -> ThunkId -> String
+printThunkId state thunkId =
+  Array.get thunkId state.cache
+    |> Maybe.map (printThunk state)
     |> Maybe.withDefault "<<thunk not in cache>>"
 
 printPrim : Prim -> String
@@ -60,11 +60,11 @@ printPrim prim =
     PCase typ -> "case[" ++ typ ++ "]"
     PEq -> "=="
 
-valueToString : Cache -> Value -> String
-valueToString cache value =
+valueToString : State -> Value -> String
+valueToString state value =
   case value of
     VInt n -> String.fromInt n
-    VApp prim thunks -> printPrim prim ++ printList (printThunkId cache) (Array.toList thunks)
+    VApp prim thunks -> printPrim prim ++ printList (printThunkId state) (Array.toList thunks)
     VAbs _ _ _ -> "<<closure>>"
 
 type alias Env = Dict VarId ThunkId
@@ -76,39 +76,45 @@ type alias State =
   , constructors : Dict ConstrId (Int, TypeId)
   }
 
+initState =
+  { cache = Array.empty
+  , types = Dict.empty
+  , constructors = Dict.empty
+  }
+
 type Thunk
   = TValue Value
   | TPending Env Expr
 
-updateThunk : ThunkId -> ( Value, Cache ) -> ( Value, Cache )
-updateThunk ref ( v, cache ) =
-  ( v, Array.set ref (TValue v) cache )
+updateThunk : ThunkId -> ( Value, State ) -> ( Value, State )
+updateThunk thunkId ( v, state ) =
+  ( v, { state | cache = Array.set thunkId (TValue v) state.cache } )
 
-force : Cache -> ThunkId -> Maybe ( Value, Cache )
-force cache ref =
-  Array.get ref cache
+force : State -> ThunkId -> Maybe ( Value, State )
+force state thunkId =
+  Array.get thunkId state.cache
     |> Maybe.andThen
       (\thunk ->
         case thunk of
-          TValue v -> Just ( v, cache )
+          TValue v -> Just ( v, state )
           TPending env expr ->
-            eval env expr cache
-              |> Maybe.map (updateThunk ref)
+            eval env expr state
+              |> Maybe.map (updateThunk thunkId)
       )
 
-forceRec : ( Value, Cache ) -> Maybe Cache
-forceRec ( value, cache ) =
+forceRec : ( Value, State ) -> Maybe State
+forceRec ( value, state ) =
   case value of
     VApp (PConstr constr) args ->
       Array.foldl
         (\ thunkId ->
-          Maybe.andThen (\tempCache -> force tempCache thunkId)
+          Maybe.andThen (\tempState -> force tempState thunkId)
             >> Maybe.andThen forceRec
         )
-        (Just cache)
+        (Just state)
         args
 
-    _ -> Just cache
+    _ -> Just state
 
 envInsert x a env =
   Dict.insert x a env
@@ -138,46 +144,46 @@ primArity prim =
 
     PEq -> 2
 
-valuesEqual : Cache -> Value -> Value -> Maybe ( Bool, Cache )
-valuesEqual cache v1 v2 =
+valuesEqual : State -> Value -> Value -> Maybe ( Bool, State )
+valuesEqual state v1 v2 =
   case ( v1, v2 ) of
-    ( VInt i1, VInt i2 ) -> Just ( i1 == i2, cache )
+    ( VInt i1, VInt i2 ) -> Just ( i1 == i2, state )
     ( VApp (PConstr constr1) thunks1, VApp (PConstr constr2) thunks2 ) ->
       -- TODO: check whether constructors belong to same type
       if constr1 == constr2
-      then thunkArraysEqual cache thunks1 thunks2
-      else Just ( False, cache )
+      then thunkArraysEqual state thunks1 thunks2
+      else Just ( False, state )
     _ -> Nothing
 
-thunkArraysEqual : Cache -> Array ThunkId -> Array ThunkId -> Maybe ( Bool, Cache )
-thunkArraysEqual cache thunks1 thunks2 =
+thunkArraysEqual : State -> Array ThunkId -> Array ThunkId -> Maybe ( Bool, State )
+thunkArraysEqual state thunks1 thunks2 =
   if Array.length thunks1 == Array.length thunks2
   then
     List.foldl
       (\ ( thunk1, thunk2 ) ->
         Maybe.andThen
-          (\ ( equalSoFar, cacheSoFar ) ->
+          (\ ( equalSoFar, stateSoFar ) ->
             if equalSoFar
-            then thunksEqual cacheSoFar thunk1 thunk2
-            else Just ( False, cacheSoFar )
+            then thunksEqual stateSoFar thunk1 thunk2
+            else Just ( False, stateSoFar )
           )
       )
-      (Just ( True, cache ))
+      (Just ( True, state ))
       (List.map2 Tuple.pair (Array.toList thunks1) (Array.toList thunks2))
   else Nothing
 
-thunksEqual : Cache -> ThunkId -> ThunkId -> Maybe ( Bool, Cache )
-thunksEqual cache t1 t2 =
+thunksEqual : State -> ThunkId -> ThunkId -> Maybe ( Bool, State )
+thunksEqual state t1 t2 =
   if t1 == t2
-  then Just ( True, cache )
+  then Just ( True, state )
   else
-    force cache t1
+    force state t1
       |> Maybe.andThen
-        (\ ( v1, cache1 ) ->
-          force cache1 t2
+        (\ ( v1, state1 ) ->
+          force state1 t2
             |> Maybe.andThen
-              (\ ( v2, cache2 ) ->
-                valuesEqual cache2 v1 v2
+              (\ ( v2, state2 ) ->
+                valuesEqual state2 v1 v2
               )
         )
 
@@ -187,21 +193,21 @@ valueOfBool bool =
     True -> VApp (PConstr "True") Array.empty
     False -> VApp (PConstr "False") Array.empty
 
-evalPrim : Prim -> Array ThunkId -> Cache -> Maybe ( Value, Cache )
-evalPrim prim thunks cache =
+evalPrim : Prim -> Array ThunkId -> State -> Maybe ( Value, State )
+evalPrim prim thunks state =
   case prim of
     PCase typeId ->
       let
         firstValue =
           Array.get 0 thunks
-            |> Maybe.andThen (force cache)
+            |> Maybe.andThen (force state)
       in
       case firstValue of
-        Just ( VApp (PConstr constrId as constr) constrThunks, cache1 ) ->
+        Just ( VApp (PConstr constrId as constr) constrThunks, state1 ) ->
           if Array.length constrThunks == primArity constr
           then
             Array.get (1 + constrOffset constrId) thunks
-              |> Maybe.andThen (force cache1)
+              |> Maybe.andThen (force state1)
               |> Maybe.andThen (evalApps constrThunks)
           else
             Nothing
@@ -209,64 +215,64 @@ evalPrim prim thunks cache =
         _ -> Nothing
 
     PConstr constrId ->
-      Just ( VApp (PConstr constrId) thunks, cache )
+      Just ( VApp (PConstr constrId) thunks, state )
 
     PEq ->
       Maybe.map2
-        (thunksEqual cache)
+        (thunksEqual state)
         (Array.get 0 thunks)
         (Array.get 1 thunks)
         |> Maybe.andThen identity
         |> Maybe.map (Tuple.mapFirst valueOfBool)
 
 
-evalApp : ThunkId -> ( Value, Cache ) -> Maybe ( Value, Cache )
-evalApp thunkId ( value, cache ) =
+evalApp : ThunkId -> ( Value, State ) -> Maybe ( Value, State )
+evalApp thunkId ( value, state ) =
   case value of
     VAbs closEnv closVar closExpr ->
-      eval (envInsert closVar thunkId closEnv) closExpr cache
+      eval (envInsert closVar thunkId closEnv) closExpr state
 
     VApp prim thunks ->
       let thunks1 = Array.push thunkId thunks
       in
       case compare (Array.length thunks1) (primArity prim) of
-        LT -> Just ( VApp prim thunks1, cache )
-        EQ -> evalPrim prim thunks1 cache
+        LT -> Just ( VApp prim thunks1, state )
+        EQ -> evalPrim prim thunks1 state
         GT -> Nothing
 
     VInt _ -> Nothing
 
-evalApps : Array ThunkId -> ( Value, Cache ) -> Maybe ( Value, Cache )
-evalApps thunks valueCache =
+evalApps : Array ThunkId -> ( Value, State ) -> Maybe ( Value, State )
+evalApps thunks valueState =
   Array.foldl
     (\ thunk -> Maybe.andThen (evalApp thunk))
-    (Just valueCache) thunks
+    (Just valueState) thunks
 
 
-eval : Env -> Expr -> Cache -> Maybe ( Value, Cache )
-eval env ex cache =
+eval : Env -> Expr -> State -> Maybe ( Value, State )
+eval env ex state =
   case ex of
     EVar n ->
       Dict.get n env
-        |> Maybe.andThen (force cache)
+        |> Maybe.andThen (force state)
   
-    EAbs x e -> Just (VAbs env x e, cache)
+    EAbs x e -> Just (VAbs env x e, state)
   
     EApp a b ->
-      eval env a cache
+      eval env a state
         |> Maybe.andThen
-          (\ ( value, cache1 ) ->
+          (\ ( value, state1 ) ->
             let
               thunk = TPending env b
-              thunkId = Array.length cache1
-              cache2 = Array.push thunk cache1
+              thunkId = Array.length state1.cache
+              state2 = { state1 | cache = Array.push thunk state1.cache }
             in
-            evalApp thunkId ( value, cache2 )
+            evalApp thunkId ( value, state2 )
           )
 
-    EFix e -> eval env (EApp e (EFix e)) cache
-    EInt n -> Just ( VInt n, cache )
-    EPrim prim -> Just ( VApp prim Array.empty, cache )
+    EFix e -> eval env (EApp e (EFix e)) state
+    EInt n -> Just ( VInt n, state )
+    EPrim prim -> Just ( VApp prim Array.empty, state )
 
 
 const = EAbs "x" (EAbs "y" (EVar "x"))
@@ -341,9 +347,9 @@ init =
   ()
 
 view model =
-  eval Dict.empty takeTest Array.empty
-    |> Maybe.andThen (\ (value, cache) -> forceRec (value, cache) |> Maybe.map (\cache_ -> (value, cache_)))
-    |> Maybe.map (\ (value, cache) -> valueToString cache value)
+  eval Dict.empty takeTest initState
+    |> Maybe.andThen (\ (value, state) -> forceRec (value, state) |> Maybe.map (\state_ -> (value, state_)))
+    |> Maybe.map (\ (value, state) -> valueToString state value)
     |> Maybe.withDefault "<<nothing>>"
     |> Html.text
 
