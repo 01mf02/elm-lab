@@ -143,24 +143,43 @@ valuesEqual cache v1 v2 =
   case ( v1, v2 ) of
     ( VInt i1, VInt i2 ) -> Just ( i1 == i2, cache )
     ( VApp (PConstr constr1) thunks1, VApp (PConstr constr2) thunks2 ) ->
+      -- TODO: check whether constructors belong to same type
       if constr1 == constr2
-      then
-        Nothing -- TODO
-      else
-        Just ( False, cache )
+      then thunkArraysEqual cache thunks1 thunks2
+      else Just ( False, cache )
     _ -> Nothing
+
+thunkArraysEqual : Cache -> Array ThunkId -> Array ThunkId -> Maybe ( Bool, Cache )
+thunkArraysEqual cache thunks1 thunks2 =
+  if Array.length thunks1 == Array.length thunks2
+  then
+    List.foldl
+      (\ ( thunk1, thunk2 ) ->
+        Maybe.andThen
+          (\ ( equalSoFar, cacheSoFar ) ->
+            if equalSoFar
+            then thunksEqual cacheSoFar thunk1 thunk2
+            else Just ( False, cacheSoFar )
+          )
+      )
+      (Just ( True, cache ))
+      (List.map2 Tuple.pair (Array.toList thunks1) (Array.toList thunks2))
+  else Nothing
 
 thunksEqual : Cache -> ThunkId -> ThunkId -> Maybe ( Bool, Cache )
 thunksEqual cache t1 t2 =
-  force cache t1
-    |> Maybe.andThen
-      (\ ( v1, cache1 ) ->
-        force cache1 t2
-          |> Maybe.andThen
-            (\ ( v2, cache2 ) ->
-              valuesEqual cache2 v1 v2
-            )
-      )
+  if t1 == t2
+  then Just ( True, cache )
+  else
+    force cache t1
+      |> Maybe.andThen
+        (\ ( v1, cache1 ) ->
+          force cache1 t2
+            |> Maybe.andThen
+              (\ ( v2, cache2 ) ->
+                valuesEqual cache2 v1 v2
+              )
+        )
 
 valueOfBool : Bool -> Value
 valueOfBool bool =
@@ -273,6 +292,7 @@ app term args =
 
 eCase = PCase >> EPrim
 eConstr = PConstr >> EPrim
+eEq = PEq |> EPrim
 
 take =
   EFix <| EAbs "take" <|
@@ -288,6 +308,14 @@ take =
                 app cons [EVar "x", app (EVar "take") [EVar "n'", EVar "xs"]]
             ]
         ]
+
+eqTest =
+  app eEq [ EInt 42, test1 ]
+
+eqTest2 = app eEq [ takeTest, app take [ natOfInt 2, repeat zero ] ]
+
+takeTest =
+  app take [ natOfInt 2, repeat zero ]
 
 identityExpr = EAbs "x" (EVar "x")
 
@@ -313,7 +341,7 @@ init =
   ()
 
 view model =
-  eval Dict.empty (app take [ natOfInt 2, repeat zero ]) Array.empty
+  eval Dict.empty takeTest Array.empty
     |> Maybe.andThen (\ (value, cache) -> forceRec (value, cache) |> Maybe.map (\cache_ -> (value, cache_)))
     |> Maybe.map (\ (value, cache) -> valueToString cache value)
     |> Maybe.withDefault "<<nothing>>"
