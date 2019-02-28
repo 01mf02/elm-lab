@@ -13,12 +13,15 @@ type Expr
   = EAbs VarId Expr
   | EApp Expr Expr
   | EVar VarId
-  | EConstr ConstrId
-  | ECase TypeId
+  | EPrim Prim
   | EFix Expr
   | EInt Int
 
 type alias ThunkId = Int
+
+type Prim
+  = PConstr ConstrId
+  | PCase TypeId
 
 {-
 Reading material:
@@ -28,16 +31,14 @@ Reading material:
 - <https://www.microsoft.com/en-us/research/wp-content/uploads/1992/04/spineless-tagless-gmachine.pdf>
 -}
 type Value
-  = VClosure Env VarId Expr
-  | VConstr ConstrId (Array ThunkId)
-  | VCase TypeId (Array ThunkId)
+  = VAbs Env VarId Expr
+  | VApp Prim (Array ThunkId)
   | VInt Int
 
 printList f l =
   if List.isEmpty l
   then ""
   else "(" ++ String.join ", " (List.map f l) ++ ")"
-
 
 printThunk : Cache -> Thunk -> String
 printThunk cache thunk =
@@ -51,13 +52,18 @@ printThunkId cache thunkId =
     |> Maybe.map (printThunk cache)
     |> Maybe.withDefault "<<thunk not in cache>>"
 
+printPrim : Prim -> String
+printPrim prim =
+  case prim of
+    PConstr constr -> constr
+    PCase typ -> "case[" ++ typ ++ "]"
+
 valueToString : Cache -> Value -> String
 valueToString cache value =
   case value of
     VInt n -> String.fromInt n
-    VConstr c thunks -> c ++ printList (printThunkId cache) (Array.toList thunks)
-    VCase t thunks -> "<<case>>"
-    VClosure _ _ _ -> "<<closure>>"
+    VApp prim thunks -> printPrim prim ++ printList (printThunkId cache) (Array.toList thunks)
+    VAbs _ _ _ -> "<<closure>>"
 
 type alias Env = Dict VarId ThunkId
 type alias Cache = Array Thunk
@@ -91,7 +97,7 @@ force cache ref =
 forceRec : ( Value, Cache ) -> Maybe Cache
 forceRec ( value, cache ) =
   case value of
-    VConstr constr args ->
+    VApp (PConstr constr) args ->
       Array.foldl
         (\ thunkId ->
           Maybe.andThen (\tempCache -> force tempCache thunkId)
@@ -99,49 +105,73 @@ forceRec ( value, cache ) =
         )
         (Just cache)
         args
+
     _ -> Just cache
 
 envInsert x a env =
   Dict.insert x a env
 
+constrOffset constrId =
+  case constrId of
+    "Nil" -> 0
+    "Cons" -> 1
+    "Zero" -> 0
+    "Succ" -> 1
+    _ -> -1
+
+primArity prim =
+  case prim of
+    PConstr constrId ->
+      case constrId of
+        "Nil" -> 0
+        "Cons" -> 2
+        "Zero" -> 0
+        "Succ" -> 1
+        _ -> -1
+
+    PCase typeId ->
+      let typeArity = 2
+      in
+      1 + typeArity
+
+evalPrim : Prim -> Array ThunkId -> Cache -> Maybe ( Value, Cache )
+evalPrim prim thunks cache =
+  case prim of
+    PCase typeId ->
+      let
+        firstValue =
+          Array.get 0 thunks
+            |> Maybe.andThen (force cache)
+      in
+      case firstValue of
+        Just ( VApp (PConstr constrId as constr) constrThunks, cache1 ) ->
+          if Array.length constrThunks == primArity constr
+          then
+            Array.get (1 + constrOffset constrId) thunks
+              |> Maybe.andThen (force cache1)
+              |> Maybe.andThen (evalApps constrThunks)
+          else
+            Nothing
+
+        _ -> Nothing
+
+    PConstr constrId ->
+      Just ( VApp (PConstr constrId) thunks, cache )
+
+
 evalApp : ThunkId -> ( Value, Cache ) -> Maybe ( Value, Cache )
 evalApp thunkId ( value, cache ) =
   case value of
-    VClosure closEnv closVar closExpr ->
+    VAbs closEnv closVar closExpr ->
       eval (envInsert closVar thunkId closEnv) closExpr cache
 
-    VConstr constr args ->
-      Just ( VConstr constr (Array.push thunkId args), cache )
-
-    VCase typ args ->
-      let
-        newArgs = Array.push thunkId args
-        typeArity = 2
+    VApp prim thunks ->
+      let thunks1 = Array.push thunkId thunks
       in
-      if Array.length newArgs < typeArity + 1
-      then
-        Just ( VCase typ newArgs, cache )
-      else
-        let
-          firstArg =
-            Array.get 0 newArgs
-              |> Maybe.andThen (force cache)
-        in
-        case firstArg of
-          Just ( VConstr c constrThunks, cache1 ) ->
-            let
-              n =
-                case c of
-                  "Nil" -> 1
-                  "Cons" -> 2
-                  "Zero" -> 1
-                  "Succ" -> 2
-                  _ -> -1
-            in
-            Array.get n newArgs
-              |> Maybe.andThen (force cache1)
-              |> Maybe.andThen (evalApps constrThunks)
-          _ -> Nothing
+      case compare (Array.length thunks1) (primArity prim) of
+        LT -> Just ( VApp prim thunks1, cache )
+        EQ -> evalPrim prim thunks1 cache
+        GT -> Nothing
 
     VInt _ -> Nothing
 
@@ -159,7 +189,7 @@ eval env ex cache =
       Dict.get n env
         |> Maybe.andThen (force cache)
   
-    EAbs x e -> Just (VClosure env x e, cache)
+    EAbs x e -> Just (VAbs env x e, cache)
   
     EApp a b ->
       eval env a cache
@@ -175,8 +205,7 @@ eval env ex cache =
 
     EFix e -> eval env (EApp e (EFix e)) cache
     EInt n -> Just ( VInt n, cache )
-    EConstr c -> Just ( VConstr c Array.empty, cache )
-    ECase typ -> Just ( VCase typ Array.empty, cache )
+    EPrim prim -> Just ( VApp prim Array.empty, cache )
 
 
 const = EAbs "x" (EAbs "y" (EVar "x"))
@@ -192,7 +221,7 @@ test1 = EApp (EAbs "y" (EInt 42)) omega
 
 test2 = EApp (EApp const (EInt 42)) omega
 
-repeat x = EFix (EAbs "zeroes" (EApp (EApp (EConstr "Cons") x) (EVar "zeroes")))
+repeat x = EFix (EAbs "zeroes" (EApp (EApp cons x) (EVar "zeroes")))
 
 abs vars term =
   List.foldr EAbs term vars
@@ -200,26 +229,32 @@ abs vars term =
 app term args =
   List.foldl (\ arg acc -> EApp acc arg) term args
 
+eCase = PCase >> EPrim
+eConstr = PConstr >> EPrim
+
 take =
   EFix <| EAbs "take" <|
     abs ["n", "l"] <|
-      app (ECase "Nat")
+      app (eCase "Nat")
         [ EVar "n"
-        , EConstr "Nil" -- Zero case
+        , nil -- Zero case
         , EAbs "n'" <|  -- Succ(n') case
-            app (ECase "List")
+            app (eCase "List")
             [ EVar "l"
-            , EConstr "Nil" -- Nil case
+            , nil -- Nil case
             , abs ["x", "xs"] <| -- Cons(x, xs) case
-                app (EConstr "Cons") [EVar "x", app (EVar "take") [EVar "n'", EVar "xs"]]
+                app cons [EVar "x", app (EVar "take") [EVar "n'", EVar "xs"]]
             ]
         ]
 
 identityExpr = EAbs "x" (EVar "x")
 
-zero = EConstr "Zero"
-succ = EConstr "Succ"
+zero = eConstr "Zero"
+succ = eConstr "Succ"
 one = EApp succ zero
+
+nil = eConstr "Nil"
+cons = eConstr "Cons"
 
 iterate f x n =
   if n <= 0
