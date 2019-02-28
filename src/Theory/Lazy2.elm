@@ -73,13 +73,25 @@ type alias Cache = Array Thunk
 type alias State =
   { cache : Cache
   , types : Dict TypeId (List ConstrId)
-  , constructors : Dict ConstrId (Int, TypeId)
+  , constructors : Dict ConstrId { arity : Int, offset : Int, typ : TypeId }
   }
+
+defaultTypes =
+  [ ( "List" , [ "Nil", "Cons" ] )
+  , ( "Nat", [ "Zero", "Succ" ] )
+  ]
+
+defaultConstrs =
+  [ ( "Nil"  , { arity = 0, offset = 0, typ = "List" } )
+  , ( "Cons" , { arity = 2, offset = 1, typ = "List" } )
+  , ( "Zero" , { arity = 0, offset = 0, typ = "Nat" } )
+  , ( "Succ" , { arity = 1, offset = 1, typ = "Nat" } )
+  ]
 
 initState =
   { cache = Array.empty
-  , types = Dict.empty
-  , constructors = Dict.empty
+  , types = Dict.fromList defaultTypes
+  , constructors = Dict.fromList defaultConstrs
   }
 
 type Thunk
@@ -119,28 +131,24 @@ forceRec ( value, state ) =
 envInsert x a env =
   Dict.insert x a env
 
-constrOffset constrId =
-  case constrId of
-    "Nil" -> 0
-    "Cons" -> 1
-    "Zero" -> 0
-    "Succ" -> 1
-    _ -> -1
+constrOffset : State -> ConstrId -> Int
+constrOffset state constrId =
+  Dict.get constrId state.constructors
+    |> Maybe.map .offset
+    |> Maybe.withDefault (-1)
 
-primArity prim =
+primArity : State -> Prim -> Int
+primArity state prim =
   case prim of
     PConstr constrId ->
-      case constrId of
-        "Nil" -> 0
-        "Cons" -> 2
-        "Zero" -> 0
-        "Succ" -> 1
-        _ -> -1
+      Dict.get constrId state.constructors
+        |> Maybe.map .arity
+        |> Maybe.withDefault (-1)
 
     PCase typeId ->
-      let typeArity = 2
-      in
-      1 + typeArity
+      Dict.get typeId state.types
+        |> Maybe.map (List.length >> (+) 1)
+        |> Maybe.withDefault -1
 
     PEq -> 2
 
@@ -204,9 +212,9 @@ evalPrim prim thunks state =
       in
       case firstValue of
         Just ( VApp (PConstr constrId as constr) constrThunks, state1 ) ->
-          if Array.length constrThunks == primArity constr
+          if Array.length constrThunks == primArity state1 constr
           then
-            Array.get (1 + constrOffset constrId) thunks
+            Array.get (1 + constrOffset state1 constrId) thunks
               |> Maybe.andThen (force state1)
               |> Maybe.andThen (evalApps constrThunks)
           else
@@ -235,7 +243,7 @@ evalApp thunkId ( value, state ) =
     VApp prim thunks ->
       let thunks1 = Array.push thunkId thunks
       in
-      case compare (Array.length thunks1) (primArity prim) of
+      case compare (Array.length thunks1) (primArity state prim) of
         LT -> Just ( VApp prim thunks1, state )
         EQ -> evalPrim prim thunks1 state
         GT -> Nothing
