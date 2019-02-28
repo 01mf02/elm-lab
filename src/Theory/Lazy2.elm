@@ -22,6 +22,7 @@ type alias ThunkId = Int
 type Prim
   = PConstr ConstrId
   | PCase TypeId
+  | PEq
 
 {-
 Reading material:
@@ -57,6 +58,7 @@ printPrim prim =
   case prim of
     PConstr constr -> constr
     PCase typ -> "case[" ++ typ ++ "]"
+    PEq -> "=="
 
 valueToString : Cache -> Value -> String
 valueToString cache value =
@@ -134,6 +136,38 @@ primArity prim =
       in
       1 + typeArity
 
+    PEq -> 2
+
+valuesEqual : Cache -> Value -> Value -> Maybe ( Bool, Cache )
+valuesEqual cache v1 v2 =
+  case ( v1, v2 ) of
+    ( VInt i1, VInt i2 ) -> Just ( i1 == i2, cache )
+    ( VApp (PConstr constr1) thunks1, VApp (PConstr constr2) thunks2 ) ->
+      if constr1 == constr2
+      then
+        Nothing -- TODO
+      else
+        Just ( False, cache )
+    _ -> Nothing
+
+thunksEqual : Cache -> ThunkId -> ThunkId -> Maybe ( Bool, Cache )
+thunksEqual cache t1 t2 =
+  force cache t1
+    |> Maybe.andThen
+      (\ ( v1, cache1 ) ->
+        force cache1 t2
+          |> Maybe.andThen
+            (\ ( v2, cache2 ) ->
+              valuesEqual cache2 v1 v2
+            )
+      )
+
+valueOfBool : Bool -> Value
+valueOfBool bool =
+  case bool of
+    True -> VApp (PConstr "True") Array.empty
+    False -> VApp (PConstr "False") Array.empty
+
 evalPrim : Prim -> Array ThunkId -> Cache -> Maybe ( Value, Cache )
 evalPrim prim thunks cache =
   case prim of
@@ -157,6 +191,14 @@ evalPrim prim thunks cache =
 
     PConstr constrId ->
       Just ( VApp (PConstr constrId) thunks, cache )
+
+    PEq ->
+      Maybe.map2
+        (thunksEqual cache)
+        (Array.get 0 thunks)
+        (Array.get 1 thunks)
+        |> Maybe.andThen identity
+        |> Maybe.map (Tuple.mapFirst valueOfBool)
 
 
 evalApp : ThunkId -> ( Value, Cache ) -> Maybe ( Value, Cache )
@@ -255,6 +297,9 @@ one = EApp succ zero
 
 nil = eConstr "Nil"
 cons = eConstr "Cons"
+
+true = eConstr "True"
+false = eConstr "False"
 
 iterate f x n =
   if n <= 0
