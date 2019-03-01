@@ -156,11 +156,16 @@ valuesEqual : State -> Value -> Value -> Maybe ( Bool, State )
 valuesEqual state v1 v2 =
   case ( v1, v2 ) of
     ( VInt i1, VInt i2 ) -> Just ( i1 == i2, state )
-    ( VApp (PConstr constr1) thunks1, VApp (PConstr constr2) thunks2 ) ->
-      -- TODO: check whether constructors belong to same type
-      if constr1 == constr2
+    ( VApp (PConstr constrId1) thunks1, VApp (PConstr constrId2) thunks2 ) ->
+      if constrId1 == constrId2
       then thunkArraysEqual state thunks1 thunks2
-      else Just ( False, state )
+      else
+        Maybe.map2
+          (\ constr1 constr2 -> constr1.typ == constr2.typ)
+          (Dict.get constrId1 state.constructors)
+          (Dict.get constrId2 state.constructors)
+          |> Maybe.andThen
+            (\ typesEqual -> if typesEqual then Just ( False, state ) else Nothing)
     _ -> Nothing
 
 thunkArraysEqual : State -> Array ThunkId -> Array ThunkId -> Maybe ( Bool, State )
